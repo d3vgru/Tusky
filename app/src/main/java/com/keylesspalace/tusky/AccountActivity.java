@@ -20,6 +20,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.Color;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
@@ -31,11 +32,12 @@ import android.support.design.widget.CollapsingToolbarLayout;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
 import android.support.design.widget.TabLayout;
-import android.support.v4.app.Fragment;
+import android.support.v4.content.LocalBroadcastManager;
 import android.support.v4.view.ViewCompat;
 import android.support.v4.view.ViewPager;
 import android.support.v7.app.ActionBar;
 import android.support.v7.widget.Toolbar;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -44,13 +46,11 @@ import android.widget.TextView;
 
 import com.keylesspalace.tusky.entity.Account;
 import com.keylesspalace.tusky.entity.Relationship;
-import com.keylesspalace.tusky.fragment.SFragment;
 import com.keylesspalace.tusky.interfaces.LinkListener;
-import com.keylesspalace.tusky.interfaces.StatusRemoveListener;
 import com.keylesspalace.tusky.pager.AccountPagerAdapter;
+import com.keylesspalace.tusky.receiver.TimelineReceiver;
 import com.keylesspalace.tusky.util.LinkHelper;
 import com.keylesspalace.tusky.util.Assert;
-import com.keylesspalace.tusky.util.Log;
 import com.keylesspalace.tusky.util.ThemeUtils;
 import com.pkmmte.view.CircularImageView;
 import com.squareup.picasso.Picasso;
@@ -65,7 +65,7 @@ import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
 
-public class AccountActivity extends BaseActivity implements SFragment.OnUserRemovedListener {
+public class AccountActivity extends BaseActivity {
     private static final String TAG = "AccountActivity"; // logging tag
 
     private enum FollowState {
@@ -79,7 +79,6 @@ public class AccountActivity extends BaseActivity implements SFragment.OnUserRem
     private boolean blocking;
     private boolean muting;
     private boolean isSelf;
-    private AccountPagerAdapter pagerAdapter;
     private Account loadedAccount;
 
     @BindView(R.id.account_avatar) CircularImageView avatar;
@@ -134,23 +133,17 @@ public class AccountActivity extends BaseActivity implements SFragment.OnUserRem
                 @AttrRes int attribute;
                 if (collapsingToolbar.getHeight() + verticalOffset
                         < 2 * ViewCompat.getMinimumHeight(collapsingToolbar)) {
-                    if (getSupportActionBar() != null && loadedAccount != null) {
-                        getSupportActionBar().setTitle(loadedAccount.getDisplayName());
+
                         toolbar.setTitleTextColor(ThemeUtils.getColor(AccountActivity.this,
                                 android.R.attr.textColorPrimary));
-
-                        String subtitle = String.format(getString(R.string.status_username_format),
-                                loadedAccount.username);
-                        getSupportActionBar().setSubtitle(subtitle);
                         toolbar.setSubtitleTextColor(ThemeUtils.getColor(AccountActivity.this,
                                 android.R.attr.textColorSecondary));
-                    }
+
                     attribute = R.attr.account_toolbar_icon_tint_collapsed;
                 } else {
-                    if (getSupportActionBar() != null) {
-                        getSupportActionBar().setTitle("");
-                        getSupportActionBar().setSubtitle("");
-                    }
+                    toolbar.setTitleTextColor(Color.TRANSPARENT);
+                    toolbar.setSubtitleTextColor(Color.TRANSPARENT);
+
                     attribute = R.attr.account_toolbar_icon_tint_uncollapsed;
                 }
                 if (attribute != priorAttribute) {
@@ -180,7 +173,6 @@ public class AccountActivity extends BaseActivity implements SFragment.OnUserRem
         // Setup the tabs and timeline pager.
         AccountPagerAdapter adapter = new AccountPagerAdapter(getSupportFragmentManager(), this,
                 accountId);
-        pagerAdapter = adapter;
         String[] pageTitles = {
             getString(R.string.title_statuses),
             getString(R.string.title_follows),
@@ -242,6 +234,15 @@ public class AccountActivity extends BaseActivity implements SFragment.OnUserRem
         username.setText(usernameFormatted);
 
         displayName.setText(account.getDisplayName());
+
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setTitle(account.getDisplayName());
+
+            String subtitle = String.format(getString(R.string.status_username_format),
+                    account.username);
+            getSupportActionBar().setSubtitle(subtitle);
+
+        }
 
         boolean useCustomTabs = PreferenceManager.getDefaultSharedPreferences(this)
                 .getBoolean("customTabs", true);
@@ -351,16 +352,6 @@ public class AccountActivity extends BaseActivity implements SFragment.OnUserRem
         updateButtons();
     }
 
-    @Override
-    public void onUserRemoved(String accountId) {
-        for (Fragment fragment : pagerAdapter.getRegisteredFragments()) {
-            if (fragment instanceof StatusRemoveListener) {
-                StatusRemoveListener listener = (StatusRemoveListener) fragment;
-                listener.removePostsByUser(accountId);
-            }
-        }
-    }
-
     private void updateFollowButton(FloatingActionButton button) {
         switch (followState) {
             case NOT_FOLLOWING: {
@@ -467,6 +458,7 @@ public class AccountActivity extends BaseActivity implements SFragment.OnUserRem
                                 Snackbar.LENGTH_LONG).show();
                     } else {
                         followState = FollowState.NOT_FOLLOWING;
+                        broadcast(TimelineReceiver.Types.UNFOLLOW_ACCOUNT, id);
                     }
                     updateButtons();
                 } else {
@@ -517,6 +509,7 @@ public class AccountActivity extends BaseActivity implements SFragment.OnUserRem
             @Override
             public void onResponse(Call<Relationship> call, Response<Relationship> response) {
                 if (response.isSuccessful()) {
+                    broadcast(TimelineReceiver.Types.BLOCK_ACCOUNT, id);
                     blocking = response.body().blocking;
                     updateButtons();
                 } else {
@@ -554,6 +547,7 @@ public class AccountActivity extends BaseActivity implements SFragment.OnUserRem
             @Override
             public void onResponse(Call<Relationship> call, Response<Relationship> response) {
                 if (response.isSuccessful()) {
+                    broadcast(TimelineReceiver.Types.MUTE_ACCOUNT, id);
                     muting = response.body().muting;
                     updateButtons();
                 } else {
@@ -586,6 +580,11 @@ public class AccountActivity extends BaseActivity implements SFragment.OnUserRem
                 .show();
     }
 
+    private void broadcast(String action, String id) {
+        Intent intent = new Intent(action);
+        intent.putExtra("id", id);
+        LocalBroadcastManager.getInstance(getApplicationContext()).sendBroadcast(intent);
+    }
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {

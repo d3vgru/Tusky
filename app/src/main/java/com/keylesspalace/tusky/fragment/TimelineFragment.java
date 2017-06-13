@@ -23,10 +23,12 @@ import android.preference.PreferenceManager;
 import android.support.annotation.Nullable;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.TabLayout;
+import android.support.v4.content.LocalBroadcastManager;
 import android.support.v4.widget.SwipeRefreshLayout;
 import android.support.v7.widget.DividerItemDecoration;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -36,11 +38,11 @@ import com.keylesspalace.tusky.R;
 import com.keylesspalace.tusky.adapter.TimelineAdapter;
 import com.keylesspalace.tusky.entity.Status;
 import com.keylesspalace.tusky.interfaces.StatusActionListener;
-import com.keylesspalace.tusky.interfaces.StatusRemoveListener;
-import com.keylesspalace.tusky.util.EndlessOnScrollListener;
-import com.keylesspalace.tusky.util.Log;
+import com.keylesspalace.tusky.receiver.TimelineReceiver;
 import com.keylesspalace.tusky.util.ThemeUtils;
+import com.keylesspalace.tusky.view.EndlessOnScrollListener;
 
+import java.util.Iterator;
 import java.util.List;
 
 import retrofit2.Call;
@@ -50,7 +52,6 @@ import retrofit2.Response;
 public class TimelineFragment extends SFragment implements
         SwipeRefreshLayout.OnRefreshListener,
         StatusActionListener,
-        StatusRemoveListener,
         SharedPreferences.OnSharedPreferenceChangeListener {
     private static final String TAG = "Timeline"; // logging tag
 
@@ -71,7 +72,11 @@ public class TimelineFragment extends SFragment implements
     private LinearLayoutManager layoutManager;
     private EndlessOnScrollListener scrollListener;
     private TabLayout.OnTabSelectedListener onTabSelectedListener;
+    private SharedPreferences preferences;
+    private boolean filterRemoveReplies;
+    private boolean filterRemoveReblogs;
     private boolean hideFab;
+    private TimelineReceiver timelineReceiver;
 
     public static TimelineFragment newInstance(Kind kind) {
         TimelineFragment fragment = new TimelineFragment();
@@ -120,6 +125,9 @@ public class TimelineFragment extends SFragment implements
         adapter = new TimelineAdapter(this);
         recyclerView.setAdapter(adapter);
 
+        timelineReceiver = new TimelineReceiver(adapter, this);
+        LocalBroadcastManager.getInstance(context.getApplicationContext())
+                .registerReceiver(timelineReceiver, TimelineReceiver.getFilter(kind));
         return rootView;
     }
 
@@ -196,6 +204,8 @@ public class TimelineFragment extends SFragment implements
             };
         }
         recyclerView.addOnScrollListener(scrollListener);
+
+        preferences = PreferenceManager.getDefaultSharedPreferences(getActivity());
     }
 
     @Override
@@ -204,6 +214,7 @@ public class TimelineFragment extends SFragment implements
             TabLayout tabLayout = (TabLayout) getActivity().findViewById(R.id.tab_layout);
             tabLayout.removeOnTabSelectedListener(onTabSelectedListener);
         }
+        LocalBroadcastManager.getInstance(getContext()).unregisterReceiver(timelineReceiver);
         super.onDestroyView();
     }
 
@@ -273,10 +284,6 @@ public class TimelineFragment extends SFragment implements
         listCall.enqueue(callback);
     }
 
-    public void removePostsByUser(String accountId) {
-        adapter.removeAllByAccountId(accountId);
-    }
-
     private static boolean findStatus(List<Status> statuses, String id) {
         for (Status status : statuses) {
             if (status.id.equals(id)) {
@@ -286,7 +293,36 @@ public class TimelineFragment extends SFragment implements
         return false;
     }
 
+    protected void filterStatuses(List<Status> statuses) {
+        Iterator<Status> it = statuses.iterator();
+        while (it.hasNext()) {
+            Status status = it.next();
+            if ((status.inReplyToId != null && filterRemoveReplies) || (status.reblog != null && filterRemoveReblogs)) {
+                it.remove();
+            }
+        }
+    }
+
+    protected void setFiltersFromSettings() {
+        boolean oldRemoveReplies = filterRemoveReplies;
+        boolean oldRemoveReblogs = filterRemoveReblogs;
+        filterRemoveReplies = (kind == Kind.HOME && !preferences.getBoolean("tabFilterHomeReplies", true));
+        filterRemoveReblogs = (kind == Kind.HOME && !preferences.getBoolean("tabFilterHomeBoosts", true));
+
+        if (adapter.getItemCount() > 1 && (oldRemoveReblogs != filterRemoveReblogs || oldRemoveReplies != filterRemoveReplies)) {
+            adapter.clear();
+            sendFetchTimelineRequest(null, null);
+        }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        setFiltersFromSettings();
+    }
+
     public void onFetchTimelineSuccess(List<Status> statuses, String fromId) {
+        filterStatuses(statuses);
         if (fromId != null) {
             if (statuses.size() > 0 && !findStatus(statuses, fromId)) {
                 adapter.addItems(statuses);
@@ -314,14 +350,6 @@ public class TimelineFragment extends SFragment implements
         } else {
             sendFetchTimelineRequest(null, null);
         }
-    }
-
-    @Override
-    public void onSuccessfulStatus() {
-        if (kind == Kind.HOME || kind == Kind.PUBLIC_FEDERATED || kind == Kind.PUBLIC_LOCAL) {
-            onRefresh();
-        }
-        super.onSuccessfulStatus();
     }
 
     public void onReply(int position) {

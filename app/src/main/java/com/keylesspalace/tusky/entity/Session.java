@@ -13,8 +13,16 @@
  * You should have received a copy of the GNU General Public License along with Tusky; if not,
  * see <http://www.gnu.org/licenses>. */
 
-package com.keylesspalace.tusky.interfaces;
+package com.keylesspalace.tusky.entity;
 
-public interface StatusRemoveListener {
-    void removePostsByUser(String accountId);
+public class Session {
+    public String instanceUrl;
+    public String accessToken;
+    public String deviceToken;
+
+    public Session(String instanceUrl, String accessToken, String deviceToken) {
+        this.instanceUrl = instanceUrl;
+        this.accessToken = accessToken;
+        this.deviceToken = deviceToken;
+    }
 }

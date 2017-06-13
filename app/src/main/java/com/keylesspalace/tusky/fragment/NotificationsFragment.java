@@ -23,14 +23,15 @@ import android.preference.PreferenceManager;
 import android.support.annotation.Nullable;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.TabLayout;
+import android.support.v4.content.LocalBroadcastManager;
 import android.support.v4.widget.SwipeRefreshLayout;
 import android.support.v7.widget.DividerItemDecoration;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-
 
 import com.keylesspalace.tusky.MainActivity;
 import com.keylesspalace.tusky.adapter.NotificationsAdapter;
@@ -38,10 +39,9 @@ import com.keylesspalace.tusky.R;
 import com.keylesspalace.tusky.entity.Notification;
 import com.keylesspalace.tusky.entity.Status;
 import com.keylesspalace.tusky.interfaces.StatusActionListener;
-import com.keylesspalace.tusky.interfaces.StatusRemoveListener;
-import com.keylesspalace.tusky.util.EndlessOnScrollListener;
-import com.keylesspalace.tusky.util.Log;
+import com.keylesspalace.tusky.receiver.TimelineReceiver;
 import com.keylesspalace.tusky.util.ThemeUtils;
+import com.keylesspalace.tusky.view.EndlessOnScrollListener;
 
 import java.util.List;
 
@@ -50,8 +50,9 @@ import retrofit2.Callback;
 import retrofit2.Response;
 
 public class NotificationsFragment extends SFragment implements
-        SwipeRefreshLayout.OnRefreshListener, StatusActionListener, StatusRemoveListener,
-        NotificationsAdapter.NotificationActionListener, SharedPreferences.OnSharedPreferenceChangeListener {
+        SwipeRefreshLayout.OnRefreshListener, StatusActionListener,
+        NotificationsAdapter.NotificationActionListener,
+        SharedPreferences.OnSharedPreferenceChangeListener {
     private static final String TAG = "Notifications"; // logging tag
 
     private SwipeRefreshLayout swipeRefreshLayout;
@@ -62,6 +63,7 @@ public class NotificationsFragment extends SFragment implements
     private TabLayout.OnTabSelectedListener onTabSelectedListener;
     private Call<List<Notification>> listCall;
     private boolean hideFab;
+    private TimelineReceiver timelineReceiver;
 
     public static NotificationsFragment newInstance() {
         NotificationsFragment fragment = new NotificationsFragment();
@@ -109,6 +111,10 @@ public class NotificationsFragment extends SFragment implements
             }
         };
         layout.addOnTabSelectedListener(onTabSelectedListener);
+
+        timelineReceiver = new TimelineReceiver(adapter);
+        LocalBroadcastManager.getInstance(context.getApplicationContext())
+                .registerReceiver(timelineReceiver, TimelineReceiver.getFilter(null));
 
         return rootView;
     }
@@ -168,6 +174,10 @@ public class NotificationsFragment extends SFragment implements
     public void onDestroyView() {
         TabLayout tabLayout = (TabLayout) getActivity().findViewById(R.id.tab_layout);
         tabLayout.removeOnTabSelectedListener(onTabSelectedListener);
+
+        LocalBroadcastManager.getInstance(getContext())
+                .unregisterReceiver(timelineReceiver);
+
         super.onDestroyView();
     }
 
@@ -203,10 +213,6 @@ public class NotificationsFragment extends SFragment implements
 
     private void sendFetchNotificationsRequest() {
         sendFetchNotificationsRequest(null, null);
-    }
-
-    public void removePostsByUser(String accountId) {
-        adapter.removeAllByAccountId(accountId);
     }
 
     private static boolean findNotification(List<Notification> notifications, String id) {

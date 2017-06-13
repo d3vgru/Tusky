@@ -21,6 +21,7 @@ import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.support.v4.app.DialogFragment;
 import android.support.v4.app.FragmentTransaction;
+import android.support.v4.content.LocalBroadcastManager;
 import android.support.v7.widget.PopupMenu;
 import android.support.v7.widget.RecyclerView;
 import android.text.Spanned;
@@ -39,6 +40,7 @@ import com.keylesspalace.tusky.entity.Relationship;
 import com.keylesspalace.tusky.entity.Status;
 import com.keylesspalace.tusky.interfaces.AdapterItemRemover;
 import com.keylesspalace.tusky.network.MastodonAPI;
+import com.keylesspalace.tusky.receiver.TimelineReceiver;
 import com.keylesspalace.tusky.util.HtmlUtils;
 
 import java.util.ArrayList;
@@ -56,14 +58,9 @@ import retrofit2.Response;
  * overlap functionality. So, I'm momentarily leaving it and hopefully working on those will clear
  * up what needs to be where. */
 public abstract class SFragment extends BaseFragment {
-    public interface OnUserRemovedListener {
-        void onUserRemoved(String accountId);
-    }
-
     protected String loggedInAccountId;
     protected String loggedInUsername;
     protected MastodonAPI mastodonAPI;
-    protected OnUserRemovedListener userRemovedListener;
     protected static int COMPOSE_RESULT = 1;
 
     @Override
@@ -80,7 +77,6 @@ public abstract class SFragment extends BaseFragment {
         super.onActivityCreated(savedInstanceState);
         BaseActivity activity = (BaseActivity) getActivity();
         mastodonAPI = activity.mastodonAPI;
-        userRemovedListener = (OnUserRemovedListener) activity;
     }
 
     protected void reply(Status status) {
@@ -101,17 +97,6 @@ public abstract class SFragment extends BaseFragment {
         intent.putExtra("content_warning", contentWarning);
         intent.putExtra("mentioned_usernames", mentionedUsernames.toArray(new String[0]));
         startActivityForResult(intent, COMPOSE_RESULT);
-    }
-
-    public void onSuccessfulStatus() {}
-
-    @Override
-    public void onActivityResult(int requestCode, int resultCode, Intent data) {
-        if (requestCode == COMPOSE_RESULT && resultCode == ComposeActivity.RESULT_OK) {
-            onSuccessfulStatus();
-        } else {
-            super.onActivityResult(requestCode, resultCode, data);
-        }
     }
 
     protected void reblog(final Status status, final boolean reblog,
@@ -188,7 +173,10 @@ public abstract class SFragment extends BaseFragment {
             public void onFailure(Call<Relationship> call, Throwable t) {}
         });
         callList.add(call);
-        userRemovedListener.onUserRemoved(id);
+        Intent intent = new Intent(TimelineReceiver.Types.MUTE_ACCOUNT);
+        intent.putExtra("id", id);
+        LocalBroadcastManager.getInstance(getContext())
+                .sendBroadcast(intent);
     }
 
     private void block(String id) {
@@ -201,7 +189,10 @@ public abstract class SFragment extends BaseFragment {
             public void onFailure(Call<Relationship> call, Throwable t) {}
         });
         callList.add(call);
-        userRemovedListener.onUserRemoved(id);
+        Intent intent = new Intent(TimelineReceiver.Types.BLOCK_ACCOUNT);
+        intent.putExtra("id", id);
+        LocalBroadcastManager.getInstance(getContext())
+                .sendBroadcast(intent);
     }
 
     private void delete(String id) {

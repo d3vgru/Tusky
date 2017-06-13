@@ -15,7 +15,6 @@
 
 package com.keylesspalace.tusky;
 
-import android.app.NotificationManager;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -25,18 +24,18 @@ import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.PersistableBundle;
-import android.support.annotation.NonNull;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.TabLayout;
 import android.support.graphics.drawable.VectorDrawableCompat;
-import android.support.v4.app.Fragment;
 import android.support.v4.content.ContextCompat;
+import android.support.v4.content.LocalBroadcastManager;
 import android.support.v4.view.ViewPager;
 import android.support.v7.app.AlertDialog;
 import android.text.SpannableStringBuilder;
 import android.text.Spanned;
 import android.text.TextUtils;
 import android.text.style.StyleSpan;
+import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.TextView;
@@ -45,10 +44,8 @@ import com.arlib.floatingsearchview.FloatingSearchView;
 import com.arlib.floatingsearchview.suggestions.SearchSuggestionsAdapter;
 import com.arlib.floatingsearchview.suggestions.model.SearchSuggestion;
 import com.keylesspalace.tusky.entity.Account;
-import com.keylesspalace.tusky.fragment.SFragment;
-import com.keylesspalace.tusky.interfaces.StatusRemoveListener;
 import com.keylesspalace.tusky.pager.TimelinePagerAdapter;
-import com.keylesspalace.tusky.util.Log;
+import com.keylesspalace.tusky.receiver.TimelineReceiver;
 import com.keylesspalace.tusky.util.ThemeUtils;
 import com.mikepenz.google_material_typeface_library.GoogleMaterial;
 import com.mikepenz.materialdrawer.AccountHeader;
@@ -75,7 +72,7 @@ import retrofit2.Call;
 import retrofit2.Callback;
 import retrofit2.Response;
 
-public class MainActivity extends BaseActivity implements SFragment.OnUserRemovedListener {
+public class MainActivity extends BaseActivity {
     private static final String TAG = "MainActivity"; // logging tag
     protected static int COMPOSE_RESULT = 1;
 
@@ -215,8 +212,7 @@ public class MainActivity extends BaseActivity implements SFragment.OnUserRemove
                 .putString("current", "[]")
                 .apply();
 
-        ((NotificationManager) (getSystemService(NOTIFICATION_SERVICE)))
-                .cancel(MessagingService.NOTIFY_ID);
+        pushNotificationClient.clearNotifications(this);
 
         /* After editing a profile, the profile header in the navigation drawer needs to be
          * refreshed */
@@ -516,7 +512,7 @@ public class MainActivity extends BaseActivity implements SFragment.OnUserRemove
         // Show follow requests in the menu, if this is a locked account.
         if (me.locked) {
             PrimaryDrawerItem followRequestsItem = new PrimaryDrawerItem()
-                    .withIdentifier(6)
+                    .withIdentifier(7)
                     .withName(R.string.action_view_follow_requests)
                     .withSelectable(false)
                     .withIcon(GoogleMaterial.Icon.gmd_person_add);
@@ -540,10 +536,9 @@ public class MainActivity extends BaseActivity implements SFragment.OnUserRemove
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         if (requestCode == COMPOSE_RESULT && resultCode == ComposeActivity.RESULT_OK) {
-            TimelinePagerAdapter adapter = (TimelinePagerAdapter) viewPager.getAdapter();
-            if (adapter.getCurrentFragment() instanceof SFragment) {
-                ((SFragment) adapter.getCurrentFragment()).onSuccessfulStatus();
-            }
+            Intent intent = new Intent(TimelineReceiver.Types.STATUS_COMPOSED);
+            LocalBroadcastManager.getInstance(getApplicationContext())
+                    .sendBroadcast(intent);
         }
         super.onActivityResult(requestCode, resultCode, data);
     }
@@ -557,27 +552,6 @@ public class MainActivity extends BaseActivity implements SFragment.OnUserRemove
         } else {
             pageHistory.pop();
             viewPager.setCurrentItem(pageHistory.peek());
-        }
-    }
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-            @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        TimelinePagerAdapter adapter = (TimelinePagerAdapter) viewPager.getAdapter();
-        for (Fragment fragment : adapter.getRegisteredFragments()) {
-            fragment.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        }
-    }
-
-    @Override
-    public void onUserRemoved(String accountId) {
-        TimelinePagerAdapter adapter = (TimelinePagerAdapter) viewPager.getAdapter();
-        for (Fragment fragment : adapter.getRegisteredFragments()) {
-            if (fragment instanceof StatusRemoveListener) {
-                StatusRemoveListener listener = (StatusRemoveListener) fragment;
-                listener.removePostsByUser(accountId);
-            }
         }
     }
 

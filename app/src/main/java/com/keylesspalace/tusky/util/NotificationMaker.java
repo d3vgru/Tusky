@@ -28,10 +28,13 @@ import android.provider.Settings;
 import android.support.annotation.Nullable;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.TaskStackBuilder;
+import android.util.Log;
 
 import com.keylesspalace.tusky.MainActivity;
 import com.keylesspalace.tusky.R;
 import com.keylesspalace.tusky.entity.Notification;
+import com.keylesspalace.tusky.receiver.NotificationClearBroadcastReceiver;
+import com.keylesspalace.tusky.view.RoundedTransformation;
 import com.squareup.picasso.Picasso;
 import com.squareup.picasso.Target;
 
@@ -39,6 +42,9 @@ import org.json.JSONArray;
 import org.json.JSONException;
 
 public class NotificationMaker {
+
+    public static final String TAG = "NotificationMaker";
+
     public static void make(final Context context, final int notifyId, Notification body) {
         final SharedPreferences preferences =
                 PreferenceManager.getDefaultSharedPreferences(context);
@@ -66,7 +72,7 @@ public class NotificationMaker {
                     alreadyContains = true;
                 }
             } catch (JSONException e) {
-                e.printStackTrace();
+                Log.d(TAG, Log.getStackTraceString(e));
             }
         }
 
@@ -127,7 +133,7 @@ public class NotificationMaker {
                 builder.setContentTitle(String.format(context.getString(R.string.notification_title_summary), currentNotifications.length()))
                         .setContentText(truncateWithEllipses(joinNames(context, currentNotifications), 40));
             } catch (JSONException e) {
-                e.printStackTrace();
+                Log.d(TAG, Log.getStackTraceString(e));
             }
         }
 
