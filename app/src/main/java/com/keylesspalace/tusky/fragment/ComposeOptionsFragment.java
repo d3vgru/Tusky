@@ -34,11 +34,12 @@ import android.widget.RadioButton;
 import android.widget.RadioGroup;
 
 import com.keylesspalace.tusky.R;
+import com.keylesspalace.tusky.entity.Status;
 import com.keylesspalace.tusky.util.ThemeUtils;
 
 public class ComposeOptionsFragment extends BottomSheetDialogFragment {
     public interface Listener {
-        void onVisibilityChanged(String visibility);
+        void onVisibilityChanged(Status.Visibility visibility);
         void onContentWarningChanged(boolean hideText);
     }
 
@@ -46,13 +47,11 @@ public class ComposeOptionsFragment extends BottomSheetDialogFragment {
     private CheckBox hideText;
     private Listener listener;
 
-    public static ComposeOptionsFragment newInstance(String visibility, boolean hideText,
-            boolean isReply) {
+    public static ComposeOptionsFragment newInstance(Status.Visibility visibility, boolean hideText) {
         Bundle arguments = new Bundle();
         ComposeOptionsFragment fragment = new ComposeOptionsFragment();
-        arguments.putString("visibility", visibility);
+        arguments.putInt("visibilityNum", visibility.getNum());
         arguments.putBoolean("hideText", hideText);
-        arguments.putBoolean("isReply", isReply);
         fragment.setArguments(arguments);
         return fragment;
     }
@@ -70,44 +69,31 @@ public class ComposeOptionsFragment extends BottomSheetDialogFragment {
         View rootView = inflater.inflate(R.layout.fragment_compose_options, container, false);
 
         Bundle arguments = getArguments();
-        String statusVisibility = arguments.getString("visibility");
+        Status.Visibility visibility = Status.Visibility.byNum(
+                arguments.getInt("visibilityNum", 0)
+        );
         boolean statusHideText = arguments.getBoolean("hideText");
-        boolean isReply = arguments.getBoolean("isReply");
 
-        radio = (RadioGroup) rootView.findViewById(R.id.radio_visibility);
-        int radioCheckedId;
-        if (!isReply) {
-            radioCheckedId = R.id.radio_public;
-        } else {
-            radioCheckedId = R.id.radio_unlisted;
-        }
-        if (statusVisibility != null) {
-            if (statusVisibility.equals("public")) {
-                radioCheckedId = R.id.radio_public;
-            } else if (statusVisibility.equals("private")) {
-                radioCheckedId = R.id.radio_private;
-            } else if (statusVisibility.equals("unlisted")) {
-                radioCheckedId = R.id.radio_unlisted;
-            } else if (statusVisibility.equals("direct")) {
-                radioCheckedId = R.id.radio_direct;
-            }
+        radio = rootView.findViewById(R.id.radio_visibility);
+        int radioCheckedId = R.id.radio_public;
+        switch (visibility) {
+            case PUBLIC:   radioCheckedId = R.id.radio_public;   break;
+            case PRIVATE:  radioCheckedId = R.id.radio_private;  break;
+            case UNLISTED: radioCheckedId = R.id.radio_unlisted; break;
+            case DIRECT:   radioCheckedId = R.id.radio_direct;   break;
         }
         radio.check(radioCheckedId);
 
-        RadioButton publicButton = (RadioButton) rootView.findViewById(R.id.radio_public);
-        RadioButton unlistedButton = (RadioButton) rootView.findViewById(R.id.radio_unlisted);
-        RadioButton privateButton = (RadioButton) rootView.findViewById(R.id.radio_private);
-        RadioButton directButton = (RadioButton) rootView.findViewById(R.id.radio_direct);
+        RadioButton publicButton = rootView.findViewById(R.id.radio_public);
+        RadioButton unlistedButton = rootView.findViewById(R.id.radio_unlisted);
+        RadioButton privateButton = rootView.findViewById(R.id.radio_private);
+        RadioButton directButton = rootView.findViewById(R.id.radio_direct);
         setRadioButtonDrawable(getContext(), publicButton, R.drawable.ic_public_24dp);
         setRadioButtonDrawable(getContext(), unlistedButton, R.drawable.ic_lock_open_24dp);
         setRadioButtonDrawable(getContext(), privateButton, R.drawable.ic_lock_outline_24dp);
         setRadioButtonDrawable(getContext(), directButton, R.drawable.ic_email_24dp);
 
-        if (isReply) {
-            publicButton.setEnabled(false);
-        }
-
-        hideText = (CheckBox) rootView.findViewById(R.id.compose_hide_text);
+        hideText = rootView.findViewById(R.id.compose_hide_text);
         hideText.setChecked(statusHideText);
 
         return rootView;
@@ -119,23 +105,23 @@ public class ComposeOptionsFragment extends BottomSheetDialogFragment {
         radio.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
             @Override
             public void onCheckedChanged(RadioGroup group, int checkedId) {
-                String visibility;
+                Status.Visibility visibility;
                 switch (checkedId) {
                     default:
                     case R.id.radio_public: {
-                        visibility = "public";
+                        visibility = Status.Visibility.PUBLIC;
                         break;
                     }
                     case R.id.radio_unlisted: {
-                        visibility = "unlisted";
+                        visibility = Status.Visibility.UNLISTED;
                         break;
                     }
                     case R.id.radio_private: {
-                        visibility = "private";
+                        visibility = Status.Visibility.PRIVATE;
                         break;
                     }
                     case R.id.radio_direct: {
-                        visibility = "direct";
+                        visibility = Status.Visibility.DIRECT;
                         break;
                     }
                 }

@@ -22,31 +22,28 @@ import android.view.View;
 import android.view.ViewGroup;
 
 import com.keylesspalace.tusky.R;
-import com.keylesspalace.tusky.interfaces.AdapterItemRemover;
 import com.keylesspalace.tusky.interfaces.StatusActionListener;
-import com.keylesspalace.tusky.entity.Status;
+import com.keylesspalace.tusky.viewdata.StatusViewData;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class TimelineAdapter extends RecyclerView.Adapter implements AdapterItemRemover {
+public class TimelineAdapter extends RecyclerView.Adapter {
     private static final int VIEW_TYPE_STATUS = 0;
     private static final int VIEW_TYPE_FOOTER = 1;
+    private static final int VIEW_TYPE_PLACEHOLDER = 2;
 
-    public enum FooterState {
-        EMPTY,
-        END,
-        LOADING
-    }
-
-    private List<Status> statuses;
+    private List<StatusViewData> statuses;
     private StatusActionListener statusListener;
-    private FooterState footerState = FooterState.END;
+    private FooterViewHolder.State footerState;
+    private boolean mediaPreviewEnabled;
 
     public TimelineAdapter(StatusActionListener statusListener) {
         super();
         statuses = new ArrayList<>();
         this.statusListener = statusListener;
+        footerState = FooterViewHolder.State.END;
+        mediaPreviewEnabled = true;
     }
 
     @Override
@@ -59,43 +56,35 @@ public class TimelineAdapter extends RecyclerView.Adapter implements AdapterItem
                 return new StatusViewHolder(view);
             }
             case VIEW_TYPE_FOOTER: {
-                View view;
-                switch (footerState) {
-                    default:
-                    case LOADING:
-                        view = LayoutInflater.from(viewGroup.getContext())
-                                .inflate(R.layout.item_footer, viewGroup, false);
-                        break;
-                    case END: {
-                        view = LayoutInflater.from(viewGroup.getContext())
-                                .inflate(R.layout.item_footer_end, viewGroup, false);
-                        break;
-                    }
-                    case EMPTY: {
-                        view = LayoutInflater.from(viewGroup.getContext())
-                                .inflate(R.layout.item_footer_empty, viewGroup, false);
-                        break;
-                    }
-                }
+                View view = LayoutInflater.from(viewGroup.getContext())
+                        .inflate(R.layout.item_footer, viewGroup, false);
                 return new FooterViewHolder(view);
             }
-        }
-    }
-
-    public void setFooterState(FooterState newFooterState) {
-        FooterState oldValue = footerState;
-        footerState = newFooterState;
-        if (footerState != oldValue) {
-            notifyItemChanged(statuses.size());
+            case VIEW_TYPE_PLACEHOLDER: {
+                View view = LayoutInflater.from(viewGroup.getContext())
+                        .inflate(R.layout.item_status_placeholder, viewGroup, false);
+                return new PlaceholderViewHolder(view);
+            }
         }
     }
 
     @Override
     public void onBindViewHolder(RecyclerView.ViewHolder viewHolder, int position) {
         if (position < statuses.size()) {
-            StatusViewHolder holder = (StatusViewHolder) viewHolder;
-            Status status = statuses.get(position);
-            holder.setupWithStatus(status, statusListener);
+            StatusViewData status = statuses.get(position);
+            if (status instanceof StatusViewData.Placeholder) {
+                PlaceholderViewHolder holder = (PlaceholderViewHolder) viewHolder;
+                holder.setup(!((StatusViewData.Placeholder) status).isLoading(), statusListener);
+            } else {
+
+                StatusViewHolder holder = (StatusViewHolder) viewHolder;
+                holder.setupWithStatus((StatusViewData.Concrete) status,
+                        statusListener, mediaPreviewEnabled);
+            }
+
+        } else {
+            FooterViewHolder holder = (FooterViewHolder) viewHolder;
+            holder.setState(footerState);
         }
     }
 
@@ -109,54 +98,31 @@ public class TimelineAdapter extends RecyclerView.Adapter implements AdapterItem
         if (position == statuses.size()) {
             return VIEW_TYPE_FOOTER;
         } else {
-            return VIEW_TYPE_STATUS;
+            if (statuses.get(position) instanceof StatusViewData.Placeholder) {
+                return VIEW_TYPE_PLACEHOLDER;
+            } else {
+                return VIEW_TYPE_STATUS;
+            }
         }
     }
 
-    public void update(List<Status> newStatuses) {
+    public void update(@Nullable List<StatusViewData> newStatuses) {
         if (newStatuses == null || newStatuses.isEmpty()) {
             return;
         }
-        if (statuses.isEmpty()) {
-            statuses = newStatuses;
-        } else {
-            int index = statuses.indexOf(newStatuses.get(newStatuses.size() - 1));
-            for (int i = 0; i < index; i++) {
-                statuses.remove(0);
-            }
-            int newIndex = newStatuses.indexOf(statuses.get(0));
-            if (newIndex == -1) {
-                statuses.addAll(0, newStatuses);
-            } else {
-                statuses.addAll(0, newStatuses.subList(0, newIndex));
-            }
-        }
+        statuses.clear();
+        statuses.addAll(newStatuses);
         notifyDataSetChanged();
     }
 
-    public void addItems(List<Status> newStatuses) {
-        int end = statuses.size();
+    public void addItems(List<StatusViewData> newStatuses) {
         statuses.addAll(newStatuses);
-        notifyItemRangeInserted(end, newStatuses.size());
+        notifyItemRangeInserted(statuses.size(), newStatuses.size());
     }
 
-    @Override
-    public void removeItem(int position) {
-        statuses.remove(position);
-        notifyItemRemoved(position);
-    }
-
-    @Override
-    public void removeAllByAccountId(String accountId) {
-        for (int i = 0; i < statuses.size();) {
-            Status status = statuses.get(i);
-            if (accountId.equals(status.account.id)) {
-                statuses.remove(i);
-                notifyItemRemoved(i);
-            } else {
-                i += 1;
-            }
-        }
+    public void changeItem(int position, StatusViewData newData, boolean notifyAdapter) {
+        statuses.set(position, newData);
+        if (notifyAdapter) notifyItemChanged(position);
     }
 
     public void clear() {
@@ -164,11 +130,15 @@ public class TimelineAdapter extends RecyclerView.Adapter implements AdapterItem
         notifyDataSetChanged();
     }
 
-    @Nullable
-    public Status getItem(int position) {
-        if (position >= 0 && position < statuses.size()) {
-            return statuses.get(position);
+    public void setFooterState(FooterViewHolder.State newFooterState) {
+        FooterViewHolder.State oldValue = footerState;
+        footerState = newFooterState;
+        if (footerState != oldValue) {
+            notifyItemChanged(statuses.size());
         }
-        return null;
+    }
+
+    public void setMediaPreviewEnabled(boolean enabled) {
+        mediaPreviewEnabled = enabled;
     }
 }

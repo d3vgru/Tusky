@@ -15,15 +15,17 @@
 
 package com.keylesspalace.tusky.fragment;
 
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.v4.app.DialogFragment;
-import android.support.v4.app.FragmentTransaction;
+import android.support.v4.app.ActivityOptionsCompat;
 import android.support.v4.content.LocalBroadcastManager;
+import android.support.v4.view.ViewCompat;
 import android.support.v7.widget.PopupMenu;
-import android.support.v7.widget.RecyclerView;
 import android.text.Spanned;
 import android.view.MenuItem;
 import android.view.View;
@@ -33,13 +35,17 @@ import com.keylesspalace.tusky.BaseActivity;
 import com.keylesspalace.tusky.ComposeActivity;
 import com.keylesspalace.tusky.R;
 import com.keylesspalace.tusky.ReportActivity;
+import com.keylesspalace.tusky.TuskyApplication;
+import com.keylesspalace.tusky.ViewMediaActivity;
 import com.keylesspalace.tusky.ViewTagActivity;
 import com.keylesspalace.tusky.ViewThreadActivity;
 import com.keylesspalace.tusky.ViewVideoActivity;
+import com.keylesspalace.tusky.db.AccountEntity;
+import com.keylesspalace.tusky.entity.Attachment;
 import com.keylesspalace.tusky.entity.Relationship;
 import com.keylesspalace.tusky.entity.Status;
 import com.keylesspalace.tusky.interfaces.AdapterItemRemover;
-import com.keylesspalace.tusky.network.MastodonAPI;
+import com.keylesspalace.tusky.network.MastodonApi;
 import com.keylesspalace.tusky.receiver.TimelineReceiver;
 import com.keylesspalace.tusky.util.HtmlUtils;
 
@@ -57,120 +63,100 @@ import retrofit2.Response;
  * adapters. I feel like the profile pages and thread viewer, which I haven't made yet, will also
  * overlap functionality. So, I'm momentarily leaving it and hopefully working on those will clear
  * up what needs to be where. */
-public abstract class SFragment extends BaseFragment {
+public abstract class SFragment extends BaseFragment implements AdapterItemRemover {
+    protected static final int COMPOSE_RESULT = 1;
+
     protected String loggedInAccountId;
     protected String loggedInUsername;
-    protected MastodonAPI mastodonAPI;
-    protected static int COMPOSE_RESULT = 1;
+    protected MastodonApi mastodonApi;
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        SharedPreferences preferences = getPrivatePreferences();
-        loggedInAccountId = preferences.getString("loggedInAccountId", null);
-        loggedInUsername = preferences.getString("loggedInAccountUsername", null);
+        AccountEntity activeAccount = TuskyApplication.getAccountManager().getActiveAccount();
+        if(activeAccount != null) {
+            loggedInAccountId = activeAccount.getAccountId();
+            loggedInUsername = activeAccount.getUsername();
+        }
     }
 
     @Override
     public void onActivityCreated(@Nullable Bundle savedInstanceState) {
         super.onActivityCreated(savedInstanceState);
         BaseActivity activity = (BaseActivity) getActivity();
-        mastodonAPI = activity.mastodonAPI;
+        mastodonApi = activity.mastodonApi;
+    }
+
+    @Override
+    public void startActivity(Intent intent) {
+        super.startActivity(intent);
+        getActivity().overridePendingTransition(R.anim.slide_from_right, R.anim.slide_to_left);
     }
 
     protected void reply(Status status) {
         String inReplyToId = status.getActionableId();
         Status actionableStatus = status.getActionableStatus();
-        String replyVisibility = actionableStatus.getVisibility().toString().toLowerCase();
+        Status.Visibility replyVisibility = actionableStatus.getVisibility();
         String contentWarning = actionableStatus.spoilerText;
         Status.Mention[] mentions = actionableStatus.mentions;
         List<String> mentionedUsernames = new ArrayList<>();
+        mentionedUsernames.add(actionableStatus.account.username);
         for (Status.Mention mention : mentions) {
             mentionedUsernames.add(mention.username);
         }
-        mentionedUsernames.add(actionableStatus.account.username);
         mentionedUsernames.remove(loggedInUsername);
-        Intent intent = new Intent(getContext(), ComposeActivity.class);
-        intent.putExtra("in_reply_to_id", inReplyToId);
-        intent.putExtra("reply_visibility", replyVisibility);
-        intent.putExtra("content_warning", contentWarning);
-        intent.putExtra("mentioned_usernames", mentionedUsernames.toArray(new String[0]));
+        Intent intent = new ComposeActivity.IntentBuilder()
+                .inReplyToId(inReplyToId)
+                .replyVisibility(replyVisibility)
+                .contentWarning(contentWarning)
+                .mentionedUsernames(mentionedUsernames)
+                .repyingStatusAuthor(actionableStatus.account.localUsername)
+                .replyingStatusContent(actionableStatus.content.toString())
+                .build(getContext());
         startActivityForResult(intent, COMPOSE_RESULT);
     }
 
-    protected void reblog(final Status status, final boolean reblog,
-                          final RecyclerView.Adapter adapter, final int position) {
+    protected void reblogWithCallback(final Status status, final boolean reblog,
+                                      Callback<Status> callback) {
         String id = status.getActionableId();
-
-        Callback<Status> cb = new Callback<Status>() {
-            @Override
-            public void onResponse(Call<Status> call, retrofit2.Response<Status> response) {
-                if (response.isSuccessful()) {
-                    status.reblogged = reblog;
-
-                    if (status.reblog != null) {
-                        status.reblog.reblogged = reblog;
-                    }
-
-                    adapter.notifyItemChanged(position);
-                }
-            }
-
-            @Override
-            public void onFailure(Call<Status> call, Throwable t) {}
-        };
 
         Call<Status> call;
         if (reblog) {
-            call = mastodonAPI.reblogStatus(id);
+            call = mastodonApi.reblogStatus(id);
         } else {
-            call = mastodonAPI.unreblogStatus(id);
+            call = mastodonApi.unreblogStatus(id);
         }
-        call.enqueue(cb);
-        callList.add(call);
+        call.enqueue(callback);
     }
 
-    protected void favourite(final Status status, final boolean favourite,
-            final RecyclerView.Adapter adapter, final int position) {
+    protected void favouriteWithCallback(final Status status, final boolean favourite,
+                                         final Callback<Status> callback) {
         String id = status.getActionableId();
-
-        Callback<Status> cb = new Callback<Status>() {
-            @Override
-            public void onResponse(Call<Status> call, retrofit2.Response<Status> response) {
-                if (response.isSuccessful()) {
-                    status.favourited = favourite;
-
-                    if (status.reblog != null) {
-                        status.reblog.favourited = favourite;
-                    }
-
-                    adapter.notifyItemChanged(position);
-                }
-            }
-
-            @Override
-            public void onFailure(Call<Status> call, Throwable t) {}
-        };
 
         Call<Status> call;
         if (favourite) {
-            call = mastodonAPI.favouriteStatus(id);
+            call = mastodonApi.favouriteStatus(id);
         } else {
-            call = mastodonAPI.unfavouriteStatus(id);
+            call = mastodonApi.unfavouriteStatus(id);
         }
-        call.enqueue(cb);
+        call.enqueue(callback);
         callList.add(call);
     }
 
+    protected void openReblog(@Nullable final Status status) {
+        if (status == null) return;
+        viewAccount(status.account.id);
+    }
+
     private void mute(String id) {
-        Call<Relationship> call = mastodonAPI.muteAccount(id);
+        Call<Relationship> call = mastodonApi.muteAccount(id);
         call.enqueue(new Callback<Relationship>() {
             @Override
-            public void onResponse(Call<Relationship> call, Response<Relationship> response) {}
+            public void onResponse(@NonNull Call<Relationship> call, @NonNull Response<Relationship> response) {}
 
             @Override
-            public void onFailure(Call<Relationship> call, Throwable t) {}
+            public void onFailure(@NonNull Call<Relationship> call, @NonNull Throwable t) {}
         });
         callList.add(call);
         Intent intent = new Intent(TimelineReceiver.Types.MUTE_ACCOUNT);
@@ -180,13 +166,13 @@ public abstract class SFragment extends BaseFragment {
     }
 
     private void block(String id) {
-        Call<Relationship> call = mastodonAPI.blockAccount(id);
+        Call<Relationship> call = mastodonApi.blockAccount(id);
         call.enqueue(new Callback<Relationship>() {
             @Override
-            public void onResponse(Call<Relationship> call, retrofit2.Response<Relationship> response) {}
+            public void onResponse(@NonNull Call<Relationship> call, @NonNull retrofit2.Response<Relationship> response) {}
 
             @Override
-            public void onFailure(Call<Relationship> call, Throwable t) {}
+            public void onFailure(@NonNull Call<Relationship> call, @NonNull Throwable t) {}
         });
         callList.add(call);
         Intent intent = new Intent(TimelineReceiver.Types.BLOCK_ACCOUNT);
@@ -196,19 +182,18 @@ public abstract class SFragment extends BaseFragment {
     }
 
     private void delete(String id) {
-        Call<ResponseBody> call = mastodonAPI.deleteStatus(id);
+        Call<ResponseBody> call = mastodonApi.deleteStatus(id);
         call.enqueue(new Callback<ResponseBody>() {
             @Override
-            public void onResponse(Call<ResponseBody> call, retrofit2.Response<ResponseBody> response) {}
+            public void onResponse(@NonNull Call<ResponseBody> call, @NonNull retrofit2.Response<ResponseBody> response) {}
 
             @Override
-            public void onFailure(Call<ResponseBody> call, Throwable t) {}
+            public void onFailure(@NonNull Call<ResponseBody> call, @NonNull Throwable t) {}
         });
         callList.add(call);
     }
 
-    protected void more(final Status status, View view, final AdapterItemRemover adapter,
-                        final int position) {
+    protected void more(final Status status, View view, final int position) {
         final String id = status.getActionableId();
         final String accountId = status.getActionableStatus().account.id;
         final String accountUsename = status.getActionableStatus().account.username;
@@ -247,6 +232,13 @@ public abstract class SFragment extends BaseFragment {
                                 startActivity(Intent.createChooser(sendIntent, getResources().getText(R.string.send_status_link_to)));
                                 return true;
                             }
+                            case R.id.status_copy_link: {
+                                ClipboardManager clipboard = (ClipboardManager)
+                                        getActivity().getSystemService(Context.CLIPBOARD_SERVICE);
+                                ClipData clip = ClipData.newPlainText(null, statusUrl);
+                                clipboard.setPrimaryClip(clip);
+                                return true;
+                            }
                             case R.id.status_mute: {
                                 mute(accountId);
                                 return true;
@@ -261,7 +253,7 @@ public abstract class SFragment extends BaseFragment {
                             }
                             case R.id.status_delete: {
                                 delete(id);
-                                adapter.removeItem(position);
+                                removeItem(position);
                                 return true;
                             }
                         }
@@ -271,18 +263,29 @@ public abstract class SFragment extends BaseFragment {
         popup.show();
     }
 
-    protected void viewMedia(String url, Status.MediaAttachment.Type type) {
+    protected void viewMedia(String[] urls, int urlIndex, Attachment.Type type,
+                             @Nullable View view) {
         switch (type) {
             case IMAGE: {
-                DialogFragment newFragment = ViewMediaFragment.newInstance(url);
-                FragmentTransaction ft = getFragmentManager().beginTransaction();
-                newFragment.show(ft, "view_media");
+                Intent intent = new Intent(getContext(), ViewMediaActivity.class);
+                intent.putExtra("urls", urls);
+                intent.putExtra("urlIndex", urlIndex);
+                if (view != null) {
+                    String url = urls[urlIndex];
+                    ViewCompat.setTransitionName(view, url);
+                    ActivityOptionsCompat options =
+                            ActivityOptionsCompat.makeSceneTransitionAnimation(getActivity(),
+                            view, url);
+                    startActivity(intent, options.toBundle());
+                } else {
+                    startActivity(intent);
+                }
                 break;
             }
             case GIFV:
             case VIDEO: {
                 Intent intent = new Intent(getContext(), ViewVideoActivity.class);
-                intent.putExtra("url", url);
+                intent.putExtra("url", urls[urlIndex]);
                 startActivity(intent);
                 break;
             }
@@ -298,6 +301,7 @@ public abstract class SFragment extends BaseFragment {
     protected void viewThread(Status status) {
         Intent intent = new Intent(getContext(), ViewThreadActivity.class);
         intent.putExtra("id", status.getActionableId());
+        intent.putExtra("url", status.getActionableStatus().url);
         startActivity(intent);
     }
 
@@ -313,14 +317,8 @@ public abstract class SFragment extends BaseFragment {
         startActivity(intent);
     }
 
-    @Override
-    public void startActivity(Intent intent) {
-        super.startActivity(intent);
-        getActivity().overridePendingTransition(R.anim.slide_from_right, R.anim.slide_to_left);
-    }
-
     protected void openReportPage(String accountId, String accountUsername, String statusId,
-                                  Spanned statusContent) {
+            Spanned statusContent) {
         Intent intent = new Intent(getContext(), ReportActivity.class);
         intent.putExtra("account_id", accountId);
         intent.putExtra("account_username", accountUsername);

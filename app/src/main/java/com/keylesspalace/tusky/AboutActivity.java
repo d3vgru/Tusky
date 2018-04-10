@@ -26,20 +26,22 @@ public class AboutActivity extends BaseActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_about);
 
-        Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
+        Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
-        ActionBar bar = getSupportActionBar();
-        if (bar != null) {
-            bar.setDisplayHomeAsUpEnabled(true);
-            bar.setDisplayShowHomeEnabled(true);
+        ActionBar actionBar = getSupportActionBar();
+        if (actionBar != null) {
+            actionBar.setDisplayHomeAsUpEnabled(true);
+            actionBar.setDisplayShowHomeEnabled(true);
         }
 
-        TextView versionTextView = (TextView) findViewById(R.id.versionTV);
+        setTitle(R.string.about_title_activity);
+
+        TextView versionTextView = findViewById(R.id.versionTV);
         String versionName = BuildConfig.VERSION_NAME;
-        String versionFormat = getString(R.string.about_application_version);
+        String versionFormat = getString(R.string.about_tusky_version);
         versionTextView.setText(String.format(versionFormat, versionName));
 
-        appAccountButton = (Button) findViewById(R.id.tusky_profile_button);
+        appAccountButton = findViewById(R.id.tusky_profile_button);
         appAccountButton.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -88,7 +90,7 @@ public class AboutActivity extends BaseActivity {
                 onSearchFailed();
             }
         };
-        mastodonAPI.searchAccounts("Tusky@mastodon.social", true, null).enqueue(callback);
+        mastodonApi.searchAccounts("Tusky@mastodon.social", true, null).enqueue(callback);
     }
 
     private void onSearchFailed() {

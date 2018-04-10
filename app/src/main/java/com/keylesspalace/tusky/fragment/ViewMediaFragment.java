@@ -15,26 +15,13 @@
 
 package com.keylesspalace.tusky.fragment;
 
-import android.app.DownloadManager;
 import android.content.Context;
-import android.content.pm.PackageManager;
-import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.annotation.StringRes;
-import android.support.design.widget.Snackbar;
-import android.support.v4.app.DialogFragment;
-import android.support.v4.content.ContextCompat;
-import android.support.v7.widget.Toolbar;
+import android.support.v4.view.ViewCompat;
 import android.view.LayoutInflater;
-import android.view.MenuItem;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.WindowManager;
 import android.widget.ImageView;
 
 import com.github.chrisbanes.photoview.OnOutsidePhotoTapListener;
@@ -43,56 +30,47 @@ import com.github.chrisbanes.photoview.PhotoView;
 import com.github.chrisbanes.photoview.PhotoViewAttacher;
 import com.keylesspalace.tusky.R;
 import com.squareup.picasso.Callback;
+import com.squareup.picasso.NetworkPolicy;
 import com.squareup.picasso.Picasso;
 
-import java.io.File;
-
-import butterknife.BindView;
-import butterknife.ButterKnife;
-
-public class ViewMediaFragment extends DialogFragment implements Toolbar.OnMenuItemClickListener {
+public class ViewMediaFragment extends BaseFragment {
+    public interface PhotoActionsListener {
+        void onBringUp();
+        void onDismiss();
+        void onPhotoTap();
+    }
 
     private PhotoViewAttacher attacher;
+    private PhotoActionsListener photoActionsListener;
+    private View rootView;
+    private PhotoView photoView;
 
-    private static final int PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE = 1;
+    private static final String ARG_START_POSTPONED_TRANSITION = "startPostponedTransition";
 
-    @BindView(R.id.view_media_image)
-    PhotoView photoView;
-
-    @BindView(R.id.toolbar)
-    Toolbar toolbar;
-
-    public static ViewMediaFragment newInstance(String url) {
+    public static ViewMediaFragment newInstance(String url, boolean shouldStartPostponedTransition) {
         Bundle arguments = new Bundle();
         ViewMediaFragment fragment = new ViewMediaFragment();
         arguments.putString("url", url);
+        arguments.putBoolean(ARG_START_POSTPONED_TRANSITION, shouldStartPostponedTransition);
+
         fragment.setArguments(arguments);
         return fragment;
     }
 
     @Override
-    public void onCreate(@Nullable Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setStyle(DialogFragment.STYLE_NORMAL, R.style.Dialog_FullScreen);
-    }
-
-    @Override
-    public void onResume() {
-        ViewGroup.LayoutParams params = getDialog().getWindow().getAttributes();
-        params.width = WindowManager.LayoutParams.MATCH_PARENT;
-        params.height = WindowManager.LayoutParams.MATCH_PARENT;
-        getDialog().getWindow().setAttributes((android.view.WindowManager.LayoutParams) params);
-        super.onResume();
+    public void onAttach(Context context) {
+        super.onAttach(context);
+        photoActionsListener = (PhotoActionsListener) context;
     }
 
     @Override
     public View onCreateView(LayoutInflater inflater, final ViewGroup container,
                              Bundle savedInstanceState) {
-        final View rootView = inflater.inflate(R.layout.fragment_view_media, container, false);
-        ButterKnife.bind(this, rootView);
+        rootView = inflater.inflate(R.layout.fragment_view_media, container, false);
+        photoView = rootView.findViewById(R.id.view_media_image);
 
-        Bundle arguments = getArguments();
-        String url = arguments.getString("url");
+        final Bundle arguments = getArguments();
+        final String url = arguments.getString("url");
 
         attacher = new PhotoViewAttacher(photoView);
 
@@ -100,7 +78,14 @@ public class ViewMediaFragment extends DialogFragment implements Toolbar.OnMenuI
         attacher.setOnOutsidePhotoTapListener(new OnOutsidePhotoTapListener() {
             @Override
             public void onOutsidePhotoTap(ImageView imageView) {
-                dismiss();
+                photoActionsListener.onDismiss();
+            }
+        });
+
+        attacher.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                photoActionsListener.onPhotoTap();
             }
         });
 
@@ -111,111 +96,90 @@ public class ViewMediaFragment extends DialogFragment implements Toolbar.OnMenuI
             public boolean onFling(MotionEvent e1, MotionEvent e2, float velocityX,
                                    float velocityY) {
                 if (Math.abs(velocityY) > Math.abs(velocityX)) {
-                    dismiss();
+                    photoActionsListener.onDismiss();
                     return true;
                 }
                 return false;
             }
         });
 
-        toolbar.setNavigationOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                dismiss();
-            }
-        });
+        ViewCompat.setTransitionName(photoView, url);
 
-        Picasso.with(getContext())
-                .load(url)
-                .into(photoView, new Callback() {
-                    @Override
-                    public void onSuccess() {
-                        rootView.findViewById(R.id.view_media_progress).setVisibility(View.GONE);
-                        toolbar.setOnMenuItemClickListener(ViewMediaFragment.this);
-                        toolbar.inflateMenu(R.menu.view_media_tooblar);
+        // If we are the view to be shown initially...
+        if (arguments.getBoolean(ARG_START_POSTPONED_TRANSITION)) {
+            // Try to load image from disk.
+            Picasso.with(getContext())
+                    .load(url)
+                    .noFade()
+                    .networkPolicy(NetworkPolicy.OFFLINE)
+                    .into(photoView, new Callback() {
+                        @Override
+                        public void onSuccess() {
+                            // if we loaded image from disk, we should check that view is attached.
+                            if (ViewCompat.isAttachedToWindow(photoView)) {
+                                finishLoadingSuccessfully();
+                            } else {
+                                // if view is not attached yet, wait for an attachment and
+                                // start transition when it's finally ready.
+                                photoView.addOnAttachStateChangeListener(
+                                        new View.OnAttachStateChangeListener() {
+                                            @Override
+                                            public void onViewAttachedToWindow(View v) {
+                                                finishLoadingSuccessfully();
+                                                photoView.removeOnAttachStateChangeListener(this);
+                                            }
 
-                        attacher.update();
-                    }
+                                            @Override
+                                            public void onViewDetachedFromWindow(View v) {
+                                            }
+                                        });
+                            }
+                        }
 
-                    @Override
-                    public void onError() {
+                        @Override
+                        public void onError() {
+                            // if there's no image in cache, load from network and start transition
+                            // immediately.
+                            photoActionsListener.onBringUp();
 
-                    }
-                });
+                            loadImageFromNetwork(url, photoView);
+                        }
+                    });
+        } else {
+            // if we're not initial page, don't bother.
+            loadImageFromNetwork(url, photoView);
+        }
 
         return rootView;
     }
 
-    private void downloadImage(){
-
-        //Permission stuff
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.JELLY_BEAN &&
-                ContextCompat.checkSelfPermission(this.getContext(), android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                        != PackageManager.PERMISSION_GRANTED) {
-            android.support.v4.app.ActivityCompat.requestPermissions(getActivity(),
-                    new String[] { android.Manifest.permission.WRITE_EXTERNAL_STORAGE },
-                    PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE);
-        } else {
-
-            //download stuff
-            String url = getArguments().getString("url");
-            Uri uri = Uri.parse(url);
-
-            String filename = new File(url).getName();
-
-            DownloadManager downloadManager = (DownloadManager) getContext().getSystemService(Context.DOWNLOAD_SERVICE);
-
-            DownloadManager.Request request = new DownloadManager.Request(uri);
-            request.allowScanningByMediaScanner();
-            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_PICTURES, getString(R.string.app_name) + "/" + filename);
-
-            downloadManager.enqueue(request);
-        }
-    }
-
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String permissions[],
-                                           @NonNull int[] grantResults) {
-        switch (requestCode) {
-            case PERMISSIONS_REQUEST_WRITE_EXTERNAL_STORAGE: {
-                if (grantResults.length > 0
-                        && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    downloadImage();
-                } else {
-                    doErrorDialog(R.string.error_media_download_permission, R.string.action_retry,
-                            new View.OnClickListener() {
-                                @Override
-                                public void onClick(View v) {
-                                    downloadImage();
-                                }
-                            });
-                }
-                break;
-            }
-        }
+    public void onDetach() {
+        super.onDetach();
+        Picasso.with(getContext())
+                .cancelRequest(photoView);
     }
 
-    private void doErrorDialog(@StringRes int descriptionId, @StringRes int actionId,
-                               View.OnClickListener listener) {
-        if(getView() != null) {
-            Snackbar bar = Snackbar.make(getView(), getString(descriptionId),
-                    Snackbar.LENGTH_SHORT);
-            bar.setAction(actionId, listener);
-            bar.show();
-        }
+    private void loadImageFromNetwork(String url, ImageView photoView) {
+        Picasso.with(getContext())
+                .load(url)
+                .noPlaceholder()
+                .into(photoView, new Callback() {
+                    @Override
+                    public void onSuccess() {
+                        finishLoadingSuccessfully();
+                    }
+
+                    @Override
+                    public void onError() {
+                        rootView.findViewById(R.id.view_media_progress).setVisibility(View.GONE);
+                    }
+                });
     }
 
-    @Override
-    public boolean onMenuItemClick(MenuItem item) {
-        int id = item.getItemId();
-        switch (id) {
-            case R.id.action_download:
-                downloadImage();
-                break;
-            default:
-                break;
-        }
-        return true;
+    private void finishLoadingSuccessfully() {
+        rootView.findViewById(R.id.view_media_progress).setVisibility(View.GONE);
+        attacher.update();
+        photoActionsListener.onBringUp();
     }
 }

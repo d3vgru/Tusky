@@ -13,9 +13,6 @@ import com.keylesspalace.tusky.interfaces.AccountActionListener;
 import com.pkmmte.view.CircularImageView;
 import com.squareup.picasso.Picasso;
 
-import butterknife.BindView;
-import butterknife.ButterKnife;
-
 public class MutesAdapter extends AccountAdapter {
     private static final int VIEW_TYPE_MUTED_USER = 0;
     private static final int VIEW_TYPE_FOOTER = 1;
@@ -47,6 +44,9 @@ public class MutesAdapter extends AccountAdapter {
             MutedUserViewHolder holder = (MutedUserViewHolder) viewHolder;
             holder.setupWithAccount(accountList.get(position));
             holder.setupActionListener(accountActionListener, true, position);
+        } else {
+            FooterViewHolder holder = (FooterViewHolder) viewHolder;
+            holder.setState(footerState);
         }
     }
 
@@ -60,16 +60,18 @@ public class MutesAdapter extends AccountAdapter {
     }
 
     static class MutedUserViewHolder extends RecyclerView.ViewHolder {
-        @BindView(R.id.muted_user_avatar) CircularImageView avatar;
-        @BindView(R.id.muted_user_username) TextView username;
-        @BindView(R.id.muted_user_display_name) TextView displayName;
-        @BindView(R.id.muted_user_unmute) ImageButton unmute;
-
+        private CircularImageView avatar;
+        private TextView username;
+        private TextView displayName;
+        private ImageButton unmute;
         private String id;
 
         MutedUserViewHolder(View itemView) {
             super(itemView);
-            ButterKnife.bind(this, itemView);
+            avatar = itemView.findViewById(R.id.muted_user_avatar);
+            username = itemView.findViewById(R.id.muted_user_username);
+            displayName = itemView.findViewById(R.id.muted_user_display_name);
+            unmute = itemView.findViewById(R.id.muted_user_unmute);
         }
 
         void setupWithAccount(Account account) {
@@ -80,7 +82,6 @@ public class MutesAdapter extends AccountAdapter {
             username.setText(formattedUsername);
             Picasso.with(avatar.getContext())
                     .load(account.avatar)
-                    .error(R.drawable.avatar_error)
                     .placeholder(R.drawable.avatar_default)
                     .into(avatar);
         }

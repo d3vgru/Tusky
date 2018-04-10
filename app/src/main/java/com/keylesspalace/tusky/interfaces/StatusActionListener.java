@@ -17,13 +17,17 @@ package com.keylesspalace.tusky.interfaces;
 
 import android.view.View;
 
-import com.keylesspalace.tusky.entity.Status;
+import com.keylesspalace.tusky.entity.Attachment;
 
 public interface StatusActionListener extends LinkListener {
     void onReply(int position);
     void onReblog(final boolean reblog, final int position);
     void onFavourite(final boolean favourite, final int position);
     void onMore(View view, final int position);
-    void onViewMedia(String url, Status.MediaAttachment.Type type);
+    void onViewMedia(String[] urls, int index, Attachment.Type type, View view);
     void onViewThread(int position);
+    void onOpenReblog(int position);
+    void onExpandedChange(boolean expanded, int position);
+    void onContentHiddenChange(boolean isShowing, int position);
+    void onLoadMore(int position);
 }

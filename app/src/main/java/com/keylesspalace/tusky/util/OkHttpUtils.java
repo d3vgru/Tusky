@@ -15,6 +15,7 @@
 
 package com.keylesspalace.tusky.util;
 
+import android.content.SharedPreferences;
 import android.os.Build;
 import android.support.annotation.NonNull;
 import android.util.Log;
@@ -23,6 +24,8 @@ import com.keylesspalace.tusky.BuildConfig;
 
 import java.io.IOException;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
 import java.net.Socket;
 import java.security.KeyManagementException;
 import java.security.KeyStore;
@@ -31,6 +34,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLSocket;
@@ -43,25 +47,28 @@ import okhttp3.ConnectionSpec;
 import okhttp3.Interceptor;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
-import okhttp3.Response;
 
 public class OkHttpUtils {
-    static final String TAG = "OkHttpUtils"; // logging tag
+    private static final String TAG = "OkHttpUtils"; // logging tag
 
     /**
      * Makes a Builder with the maximum range of TLS versions and cipher suites enabled.
-     *
+     * <p>
      * It first tries the "approved" list of cipher suites given in OkHttp (the default in
      * ConnectionSpec.MODERN_TLS) and if that doesn't work falls back to the set of ALL enabled,
      * then falls back to plain http.
-     *
+     * <p>
      * API level 24 has a regression in elliptic curves where it only supports secp256r1, so this
      * first tries a fallback without elliptic curves at all, and then tries them after.
-     *
+     * <p>
      * TLS 1.1 and 1.2 have to be manually enabled on API levels 16-20.
      */
     @NonNull
-    public static OkHttpClient.Builder getCompatibleClientBuilder() {
+    public static OkHttpClient.Builder getCompatibleClientBuilder(SharedPreferences preferences) {
+        boolean httpProxyEnabled = preferences.getBoolean("httpProxyEnabled", false);
+        String httpServer = preferences.getString("httpProxyServer", "");
+        int httpPort = Integer.parseInt(preferences.getString("httpProxyPort", "-1"));
+
         ConnectionSpec fallback = new ConnectionSpec.Builder(ConnectionSpec.MODERN_TLS)
                 .allEnabledCipherSuites()
                 .supportsTlsExtensions(true)
@@ -75,14 +82,21 @@ public class OkHttpUtils {
 
         OkHttpClient.Builder builder = new OkHttpClient.Builder()
                 .addInterceptor(getUserAgentInterceptor())
+                .readTimeout(30, TimeUnit.SECONDS)
+                .writeTimeout(30, TimeUnit.SECONDS)
                 .connectionSpecs(specList);
+
+        if (httpProxyEnabled && !httpServer.isEmpty() && (httpPort > 0) && (httpPort < 65535)) {
+            InetSocketAddress address = InetSocketAddress.createUnresolved(httpServer, httpPort);
+            builder.proxy(new Proxy(Proxy.Type.HTTP, address));
+        }
 
         return enableHigherTlsOnPreLollipop(builder);
     }
 
     @NonNull
-    public static OkHttpClient getCompatibleClient() {
-        return getCompatibleClientBuilder().build();
+    public static OkHttpClient getCompatibleClient(SharedPreferences preferences) {
+        return getCompatibleClientBuilder(preferences).build();
     }
 
     /**
@@ -92,18 +106,14 @@ public class OkHttpUtils {
      */
     @NonNull
     private static Interceptor getUserAgentInterceptor() {
-        return new Interceptor() {
-            @Override
-            public Response intercept(Chain chain) throws IOException {
-                Request originalRequest = chain.request();
-                Request requestWithUserAgent = originalRequest.newBuilder()
-                        .header("User-Agent", "Tusky/"+ BuildConfig.VERSION_NAME+" Android/"+Build.VERSION.RELEASE)
-                        .build();
-                return chain.proceed(requestWithUserAgent);
-            }
+        return chain -> {
+            Request originalRequest = chain.request();
+            Request requestWithUserAgent = originalRequest.newBuilder()
+                    .header("User-Agent", "Tusky/"+ BuildConfig.VERSION_NAME+" Android/"+Build.VERSION.RELEASE)
+                    .build();
+            return chain.proceed(requestWithUserAgent);
         };
     }
-
 
     /**
      * Android version Nougat has a regression where elliptic curve cipher suites are supported, but
@@ -149,7 +159,7 @@ public class OkHttpUtils {
     }
 
     private static OkHttpClient.Builder enableHigherTlsOnPreLollipop(OkHttpClient.Builder builder) {
-        if (Build.VERSION.SDK_INT >= 16 && Build.VERSION.SDK_INT < 22) {
+        if (Build.VERSION.SDK_INT < 22) {
             try {
                 TrustManagerFactory trustManagerFactory = TrustManagerFactory.getInstance(
                         TrustManagerFactory.getDefaultAlgorithm());

@@ -43,6 +43,7 @@ import java.util.List;
 import okhttp3.ResponseBody;
 import retrofit2.Call;
 import retrofit2.Callback;
+import retrofit2.Response;
 
 public class ReportActivity extends BaseActivity {
     private static final String TAG = "ReportActivity"; // logging tag
@@ -64,7 +65,7 @@ public class ReportActivity extends BaseActivity {
         String statusId = intent.getStringExtra("status_id");
         String statusContent = intent.getStringExtra("status_content");
 
-        Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
+        Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
         ActionBar bar = getSupportActionBar();
         if (bar != null) {
@@ -76,7 +77,7 @@ public class ReportActivity extends BaseActivity {
         }
         anyView = toolbar;
 
-        final RecyclerView recyclerView = (RecyclerView) findViewById(R.id.report_recycler_view);
+        final RecyclerView recyclerView = findViewById(R.id.report_recycler_view);
         recyclerView.setHasFixedSize(true);
         LinearLayoutManager layoutManager = new LinearLayoutManager(this);
         recyclerView.setLayoutManager(layoutManager);
@@ -94,7 +95,7 @@ public class ReportActivity extends BaseActivity {
                 HtmlUtils.fromHtml(statusContent), true);
         adapter.addItem(reportStatus);
 
-        comment = (EditText) findViewById(R.id.report_comment);
+        comment = findViewById(R.id.report_comment);
 
         reportAlreadyInFlight = false;
 
@@ -118,9 +119,9 @@ public class ReportActivity extends BaseActivity {
 
     private void sendReport(final String accountId, final String[] statusIds,
             final String comment) {
-        mastodonAPI.report(accountId, Arrays.asList(statusIds), comment).enqueue(new Callback<ResponseBody>() {
+        Callback<ResponseBody> callback = new Callback<ResponseBody>() {
             @Override
-            public void onResponse(Call<ResponseBody> call, retrofit2.Response<ResponseBody> response) {
+            public void onResponse(Call<ResponseBody> call, Response<ResponseBody> response) {
                 if (response.isSuccessful()) {
                     onSendSuccess();
                 } else {
@@ -132,7 +133,9 @@ public class ReportActivity extends BaseActivity {
             public void onFailure(Call<ResponseBody> call, Throwable t) {
                 onSendFailure(accountId, statusIds, comment);
             }
-        });
+        };
+        mastodonApi.report(accountId, Arrays.asList(statusIds), comment)
+                .enqueue(callback);
     }
 
     private void onSendSuccess() {
@@ -155,9 +158,9 @@ public class ReportActivity extends BaseActivity {
     }
 
     private void fetchRecentStatuses(String accountId) {
-        mastodonAPI.accountStatuses(accountId, null, null, null).enqueue(new Callback<List<Status>>() {
+        Callback<List<Status>> callback = new Callback<List<Status>>() {
             @Override
-            public void onResponse(Call<List<Status>> call, retrofit2.Response<List<Status>> response) {
+            public void onResponse(Call<List<Status>> call, Response<List<Status>> response) {
                 if (!response.isSuccessful()) {
                     onFetchStatusesFailure(new Exception(response.message()));
                     return;
@@ -178,7 +181,9 @@ public class ReportActivity extends BaseActivity {
             public void onFailure(Call<List<Status>> call, Throwable t) {
                 onFetchStatusesFailure((Exception) t);
             }
-        });
+        };
+        mastodonApi.accountStatuses(accountId, null, null, null, null)
+                .enqueue(callback);
     }
 
     private void onFetchStatusesFailure(Exception exception) {

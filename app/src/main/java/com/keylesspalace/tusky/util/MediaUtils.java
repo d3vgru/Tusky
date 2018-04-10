@@ -1,22 +1,35 @@
+/* Copyright 2017 Andrew Dawson
+ *
+ * This file is a part of Tusky.
+ *
+ * This program is free software; you can redistribute it and/or modify it under the terms of the
+ * GNU General Public License as published by the Free Software Foundation; either version 3 of the
+ * License, or (at your option) any later version.
+ *
+ * Tusky is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even
+ * the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along with Tusky; if not,
+ * see <http://www.gnu.org/licenses>. */
+
 package com.keylesspalace.tusky.util;
 
 import android.content.ContentResolver;
 import android.content.Context;
 import android.database.Cursor;
 import android.graphics.Bitmap;
-import android.graphics.drawable.Drawable;
+import android.graphics.BitmapFactory;
+import android.media.MediaMetadataRetriever;
+import android.media.ThumbnailUtils;
 import android.net.Uri;
-import android.os.Environment;
 import android.provider.OpenableColumns;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
-import android.support.v4.content.FileProvider;
-
-import com.squareup.picasso.Picasso;
-import com.squareup.picasso.Target;
+import android.support.annotation.Px;
 
 import java.io.ByteArrayOutputStream;
-import java.io.File;
-import java.io.FileOutputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -28,6 +41,10 @@ import java.io.InputStream;
 public class MediaUtils {
     public static final int MEDIA_SIZE_UNKNOWN = -1;
 
+    /**
+     * Copies the entire contents of the given stream into a byte array and returns it. Beware of
+     * OutOfMemoryError for streams of unknown size.
+     */
     @Nullable
     public static byte[] inputStreamGetBytes(InputStream stream) {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
@@ -44,9 +61,21 @@ public class MediaUtils {
         return buffer.toByteArray();
     }
 
-    public static long getMediaSize(ContentResolver contentResolver, Uri uri) {
+    /**
+     * Fetches the size of the media represented by the given URI, assuming it is openable and
+     * the ContentResolver is able to resolve it.
+     *
+     * @return the size of the media or {@link MediaUtils#MEDIA_SIZE_UNKNOWN}
+     */
+    public static long getMediaSize(@NonNull ContentResolver contentResolver, @Nullable Uri uri) {
+        if(uri == null) return MEDIA_SIZE_UNKNOWN;
         long mediaSize;
-        Cursor cursor = contentResolver.query(uri, null, null, null, null);
+        Cursor cursor;
+        try {
+            cursor = contentResolver.query(uri, null, null, null, null);
+        } catch (SecurityException e) {
+            return MEDIA_SIZE_UNKNOWN;
+        }
         if (cursor != null) {
             int sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE);
             cursor.moveToFirst();
@@ -58,60 +87,43 @@ public class MediaUtils {
         return mediaSize;
     }
 
-    // Download an image with picasso
-    public static Target picassoImageTarget(final Context context, final MediaListener mediaListener) {
-        final String imageName = "temp";
-        return new Target() {
-            @Override
-            public void onBitmapLoaded(final Bitmap bitmap, Picasso.LoadedFrom from) {
-                new Thread(new Runnable() {
-                    @Override
-                    public void run() {
-                        FileOutputStream fos = null;
-                        Uri uriForFile;
-                        try {
-                            // we download only a "temp" file
-                            File storageDir = context.getExternalFilesDir(Environment.DIRECTORY_PICTURES);
-                            File tempFile = File.createTempFile(
-                                    imageName,
-                                    ".jpg",
-                                    storageDir
-                            );
-
-                            fos = new FileOutputStream(tempFile);
-                            bitmap.compress(Bitmap.CompressFormat.PNG, 100, fos);
-                            uriForFile = FileProvider.getUriForFile(context,
-                                    "com.keylesspalace.tusky.fileprovider",
-                                    tempFile);
-
-                            // giving to the activity the URI callback
-                            mediaListener.onCallback(uriForFile);
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        } finally {
-                            try {
-                                if (fos != null) {
-                                    fos.close();
-                                }
-                            } catch (IOException e) {
-                                e.printStackTrace();
-                            }
-                        }
-                    }
-                }).start();
+    @Nullable
+    public static Bitmap getImageThumbnail(ContentResolver contentResolver, Uri uri,
+                                            @Px int thumbnailSize) {
+        InputStream stream;
+        try {
+            stream = contentResolver.openInputStream(uri);
+        } catch (FileNotFoundException e) {
+            return null;
+        }
+        Bitmap source = BitmapFactory.decodeStream(stream);
+        if (source == null) {
+            IOUtils.closeQuietly(stream);
+            return null;
+        }
+        Bitmap bitmap = ThumbnailUtils.extractThumbnail(source, thumbnailSize, thumbnailSize);
+        source.recycle();
+        try {
+            if (stream != null) {
+                stream.close();
             }
-
-            @Override
-            public void onBitmapFailed(Drawable errorDrawable) {
-            }
-
-            @Override
-            public void onPrepareLoad(Drawable placeHolderDrawable) {
-            }
-        };
+        } catch (IOException e) {
+            bitmap.recycle();
+            return null;
+        }
+        return bitmap;
     }
 
-    public interface MediaListener {
-        void onCallback(Uri headerInfo);
+    @Nullable
+    public static Bitmap getVideoThumbnail(Context context, Uri uri, @Px int thumbnailSize) {
+        MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+        retriever.setDataSource(context, uri);
+        Bitmap source = retriever.getFrameAtTime();
+        if (source == null) {
+            return null;
+        }
+        Bitmap bitmap = ThumbnailUtils.extractThumbnail(source, thumbnailSize, thumbnailSize);
+        source.recycle();
+        return bitmap;
     }
 }

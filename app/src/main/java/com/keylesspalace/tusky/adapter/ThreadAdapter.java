@@ -15,42 +15,71 @@
 
 package com.keylesspalace.tusky.adapter;
 
+import android.support.annotation.Nullable;
 import android.support.v7.widget.RecyclerView;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
 import com.keylesspalace.tusky.R;
-import com.keylesspalace.tusky.interfaces.AdapterItemRemover;
 import com.keylesspalace.tusky.interfaces.StatusActionListener;
-import com.keylesspalace.tusky.entity.Status;
+import com.keylesspalace.tusky.viewdata.StatusViewData;
 
 import java.util.ArrayList;
 import java.util.List;
 
-public class ThreadAdapter extends RecyclerView.Adapter implements AdapterItemRemover {
-    private List<Status> statuses;
+public class ThreadAdapter extends RecyclerView.Adapter {
+    private static final int VIEW_TYPE_STATUS = 0;
+    private static final int VIEW_TYPE_STATUS_DETAILED = 1;
+
+    private List<StatusViewData.Concrete> statuses;
     private StatusActionListener statusActionListener;
-    private int statusIndex;
+    private boolean mediaPreviewEnabled;
+    private int detailedStatusPosition;
 
     public ThreadAdapter(StatusActionListener listener) {
         this.statusActionListener = listener;
         this.statuses = new ArrayList<>();
-        this.statusIndex = 0;
+        mediaPreviewEnabled = true;
+        detailedStatusPosition = RecyclerView.NO_POSITION;
     }
 
     @Override
     public RecyclerView.ViewHolder onCreateViewHolder(ViewGroup parent, int viewType) {
-        View view = LayoutInflater.from(parent.getContext())
-                .inflate(R.layout.item_status, parent, false);
-        return new StatusViewHolder(view);
+        switch (viewType) {
+            default:
+            case VIEW_TYPE_STATUS: {
+                View view = LayoutInflater.from(parent.getContext())
+                        .inflate(R.layout.item_status, parent, false);
+                return new StatusViewHolder(view);
+            }
+            case VIEW_TYPE_STATUS_DETAILED: {
+                View view = LayoutInflater.from(parent.getContext())
+                        .inflate(R.layout.item_status_detailed, parent, false);
+                return new StatusDetailedViewHolder(view);
+            }
+        }
     }
 
     @Override
     public void onBindViewHolder(RecyclerView.ViewHolder viewHolder, int position) {
-        StatusViewHolder holder = (StatusViewHolder) viewHolder;
-        Status status = statuses.get(position);
-        holder.setupWithStatus(status, statusActionListener);
+        StatusViewData.Concrete status = statuses.get(position);
+        if (position == detailedStatusPosition) {
+            StatusDetailedViewHolder holder = (StatusDetailedViewHolder) viewHolder;
+            holder.setupWithStatus(status, statusActionListener, mediaPreviewEnabled);
+        } else {
+            StatusViewHolder holder = (StatusViewHolder) viewHolder;
+            holder.setupWithStatus(status, statusActionListener, mediaPreviewEnabled);
+        }
+    }
+
+    @Override
+    public int getItemViewType(int position) {
+        if (position == detailedStatusPosition) {
+            return VIEW_TYPE_STATUS_DETAILED;
+        } else {
+            return VIEW_TYPE_STATUS;
+        }
     }
 
     @Override
@@ -58,68 +87,73 @@ public class ThreadAdapter extends RecyclerView.Adapter implements AdapterItemRe
         return statuses.size();
     }
 
-    public Status getItem(int position) {
-        return statuses.get(position);
+    public void setStatuses(List<StatusViewData.Concrete> statuses) {
+        this.statuses.clear();
+        this.statuses.addAll(statuses);
+        notifyDataSetChanged();
     }
 
-    @Override
-    public void removeItem(int position) {
-        statuses.remove(position);
-        notifyItemRemoved(position);
+    public void addItem(int position, StatusViewData.Concrete statusViewData) {
+        statuses.add(position, statusViewData);
+        notifyItemInserted(position);
     }
 
-    @Override
-    public void removeAllByAccountId(String accountId) {
-        for (int i = 0; i < statuses.size();) {
-            Status status = statuses.get(i);
-            if (accountId.equals(status.account.id)) {
-                statuses.remove(i);
-                notifyItemRemoved(i);
-            } else {
-                i += 1;
-            }
-        }
-    }
-
-    public int setStatus(Status status) {
-        if (statuses.size() > 0 && statuses.get(statusIndex).equals(status)) {
-            // Do not add this status on refresh, it's already in there.
-            statuses.set(statusIndex, status);
-            return statusIndex;
-        }
-        int i = statusIndex;
-        statuses.add(i, status);
-        notifyItemInserted(i);
-        return i;
-    }
-
-    public void setContext(List<Status> ancestors, List<Status> descendants) {
-        Status mainStatus = null;
-
-        // In case of refresh, remove old ancestors and descendants first. We'll remove all blindly,
-        // as we have no guarantee on their order to be the same as before
+    public void clearItems() {
         int oldSize = statuses.size();
-        if (oldSize > 0) {
-            mainStatus = statuses.get(statusIndex);
-            statuses.clear();
-            notifyItemRangeRemoved(0, oldSize);
-        }
+        statuses.clear();
+        detailedStatusPosition = RecyclerView.NO_POSITION;
+        notifyItemRangeRemoved(0, oldSize);
+    }
 
-        // Insert newly fetched ancestors
-        statusIndex = ancestors.size();
-        statuses.addAll(0, ancestors);
-        notifyItemRangeInserted(0, statusIndex);
+    public void addAll(int position, List<StatusViewData.Concrete> statuses) {
+        this.statuses.addAll(position, statuses);
+        notifyItemRangeInserted(position, statuses.size());
+    }
 
-        if (mainStatus != null) {
-            // In case we needed to delete everything (which is way easier than deleting
-            // everything except one), re-insert the remaining status here.
-            statuses.add(statusIndex, mainStatus);
-            notifyItemInserted(statusIndex);
-        }
-
-        // Insert newly fetched descendants
+    public void addAll(List<StatusViewData.Concrete> statuses) {
         int end = statuses.size();
-        statuses.addAll(descendants);
-        notifyItemRangeInserted(end, descendants.size());
+        this.statuses.addAll(statuses);
+        notifyItemRangeInserted(end, statuses.size());
+    }
+
+    public void clear() {
+        statuses.clear();
+        detailedStatusPosition = RecyclerView.NO_POSITION;
+        notifyDataSetChanged();
+    }
+
+    public void setItem(int position, StatusViewData.Concrete status, boolean notifyAdapter) {
+        statuses.set(position, status);
+        if (notifyAdapter) {
+            notifyItemChanged(position);
+        }
+    }
+
+    @Nullable
+    public StatusViewData.Concrete getItem(int position) {
+        if (position != RecyclerView.NO_POSITION && position >= 0 && position < statuses.size()) {
+            return statuses.get(position);
+        } else {
+            return null;
+        }
+    }
+
+    public void setMediaPreviewEnabled(boolean enabled) {
+        mediaPreviewEnabled = enabled;
+    }
+
+    public void setDetailedStatusPosition(int position) {
+        if (position != detailedStatusPosition
+                && detailedStatusPosition != RecyclerView.NO_POSITION) {
+            int prior = detailedStatusPosition;
+            detailedStatusPosition = position;
+            notifyItemChanged(prior);
+        } else {
+            detailedStatusPosition = position;
+        }
+    }
+
+    public int getDetailedStatusPosition() {
+        return detailedStatusPosition;
     }
 }

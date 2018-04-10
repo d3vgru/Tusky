@@ -19,9 +19,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.drawable.Drawable;
 import android.os.Bundle;
+import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.design.widget.Snackbar;
-import android.support.design.widget.TabLayout;
 import android.support.v7.widget.DividerItemDecoration;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
@@ -30,19 +30,20 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 
-
 import com.keylesspalace.tusky.AccountActivity;
+import com.keylesspalace.tusky.BaseActivity;
+import com.keylesspalace.tusky.R;
 import com.keylesspalace.tusky.adapter.AccountAdapter;
 import com.keylesspalace.tusky.adapter.BlocksAdapter;
 import com.keylesspalace.tusky.adapter.FollowAdapter;
 import com.keylesspalace.tusky.adapter.FollowRequestsAdapter;
+import com.keylesspalace.tusky.adapter.FooterViewHolder;
 import com.keylesspalace.tusky.adapter.MutesAdapter;
-import com.keylesspalace.tusky.BaseActivity;
 import com.keylesspalace.tusky.entity.Account;
 import com.keylesspalace.tusky.entity.Relationship;
 import com.keylesspalace.tusky.interfaces.AccountActionListener;
-import com.keylesspalace.tusky.network.MastodonAPI;
-import com.keylesspalace.tusky.R;
+import com.keylesspalace.tusky.network.MastodonApi;
+import com.keylesspalace.tusky.util.HttpHeaderLink;
 import com.keylesspalace.tusky.util.ThemeUtils;
 import com.keylesspalace.tusky.view.EndlessOnScrollListener;
 
@@ -54,6 +55,9 @@ import retrofit2.Response;
 
 public class AccountListFragment extends BaseFragment implements AccountActionListener {
     private static final String TAG = "AccountList"; // logging tag
+
+    public AccountListFragment() {
+    }
 
     public enum Type {
         FOLLOWS,
@@ -69,8 +73,11 @@ public class AccountListFragment extends BaseFragment implements AccountActionLi
     private RecyclerView recyclerView;
     private EndlessOnScrollListener scrollListener;
     private AccountAdapter adapter;
-    private TabLayout.OnTabSelectedListener onTabSelectedListener;
-    private MastodonAPI api;
+    private MastodonApi api;
+    private boolean bottomLoading;
+    private int bottomFetches;
+    private boolean topLoading;
+    private int topFetches;
 
     public static AccountListFragment newInstance(Type type) {
         Bundle arguments = new Bundle();
@@ -100,13 +107,13 @@ public class AccountListFragment extends BaseFragment implements AccountActionLi
 
     @Nullable
     @Override
-    public View onCreateView(LayoutInflater inflater, @Nullable ViewGroup container,
-            @Nullable Bundle savedInstanceState) {
+    public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container,
+                             @Nullable Bundle savedInstanceState) {
 
         View rootView = inflater.inflate(R.layout.fragment_account_list, container, false);
 
         Context context = getContext();
-        recyclerView = (RecyclerView) rootView.findViewById(R.id.recycler_view);
+        recyclerView = rootView.findViewById(R.id.recycler_view);
         recyclerView.setHasFixedSize(true);
         layoutManager = new LinearLayoutManager(context);
         recyclerView.setLayoutManager(layoutManager);
@@ -128,6 +135,11 @@ public class AccountListFragment extends BaseFragment implements AccountActionLi
         }
         recyclerView.setAdapter(adapter);
 
+        bottomLoading = false;
+        bottomFetches = 0;
+        topLoading = false;
+        topFetches = 0;
+
         return rootView;
     }
 
@@ -136,121 +148,22 @@ public class AccountListFragment extends BaseFragment implements AccountActionLi
         super.onActivityCreated(savedInstanceState);
         BaseActivity activity = (BaseActivity) getActivity();
 
-        if (jumpToTopAllowed()) {
-            TabLayout layout = (TabLayout) activity.findViewById(R.id.tab_layout);
-            onTabSelectedListener = new TabLayout.OnTabSelectedListener() {
-                @Override
-                public void onTabSelected(TabLayout.Tab tab) {}
-
-                @Override
-                public void onTabUnselected(TabLayout.Tab tab) {}
-
-                @Override
-                public void onTabReselected(TabLayout.Tab tab) {
-                    jumpToTop();
-                }
-            };
-            layout.addOnTabSelectedListener(onTabSelectedListener);
-        }
-
-        /* MastodonAPI on the base activity is only guaranteed to be initialised after the parent
+        /* MastodonApi on the base activity is only guaranteed to be initialised after the parent
          * activity is created, so everything needing to access the api object has to be delayed
          * until here. */
-        api = activity.mastodonAPI;
+        api = activity.mastodonApi;
+        // Just use the basic scroll listener to load more accounts.
         scrollListener = new EndlessOnScrollListener(layoutManager) {
             @Override
             public void onLoadMore(int page, int totalItemsCount, RecyclerView view) {
-                AccountAdapter adapter = (AccountAdapter) view.getAdapter();
-                Account account = adapter.getItem(adapter.getItemCount() - 2);
-                if (account != null) {
-                    fetchAccounts(account.id, null);
-                } else {
-                    fetchAccounts();
-                }
+                AccountListFragment.this.onLoadMore(view);
             }
         };
+
         recyclerView.addOnScrollListener(scrollListener);
-    }
 
-    @Override
-    public void onDestroyView() {
-        if (jumpToTopAllowed()) {
-            TabLayout tabLayout = (TabLayout) getActivity().findViewById(R.id.tab_layout);
-            tabLayout.removeOnTabSelectedListener(onTabSelectedListener);
-        }
-        super.onDestroyView();
-    }
+        fetchAccounts(null, null, FetchEnd.BOTTOM);
 
-    private void fetchAccounts(final String fromId, String uptoId) {
-        Callback<List<Account>> cb = new Callback<List<Account>>() {
-            @Override
-            public void onResponse(Call<List<Account>> call, Response<List<Account>> response) {
-                if (response.isSuccessful()) {
-                    onFetchAccountsSuccess(response.body(), fromId);
-                } else {
-                    onFetchAccountsFailure(new Exception(response.message()));
-                }
-            }
-
-            @Override
-            public void onFailure(Call<List<Account>> call, Throwable t) {
-                onFetchAccountsFailure((Exception) t);
-            }
-        };
-
-        Call<List<Account>> listCall;
-        switch (type) {
-            default:
-            case FOLLOWS: {
-                listCall = api.accountFollowing(accountId, fromId, uptoId, null);
-                break;
-            }
-            case FOLLOWERS: {
-                listCall = api.accountFollowers(accountId, fromId, uptoId, null);
-                break;
-            }
-            case BLOCKS: {
-                listCall = api.blocks(fromId, uptoId, null);
-                break;
-            }
-            case MUTES: {
-                listCall = api.mutes(fromId, uptoId, null);
-                break;
-            }
-            case FOLLOW_REQUESTS: {
-                listCall = api.followRequests(fromId, uptoId, null);
-                break;
-            }
-        }
-        callList.add(listCall);
-        listCall.enqueue(cb);
-    }
-
-    private void fetchAccounts() {
-        fetchAccounts(null, null);
-    }
-
-    private static boolean findAccount(List<Account> accounts, String id) {
-        for (Account account : accounts) {
-            if (account.id.equals(id)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private void onFetchAccountsSuccess(List<Account> accounts, String fromId) {
-        if (fromId != null) {
-            if (accounts.size() > 0 && !findAccount(accounts, fromId)) {
-                adapter.addItems(accounts);
-            }
-        } else {
-            adapter.update(accounts);
-        }
-    }
-
-    private void onFetchAccountsFailure(Exception exception) {
-        Log.e(TAG, "Fetch failure: " + exception.getMessage());
     }
 
     @Override
@@ -266,13 +179,13 @@ public class AccountListFragment extends BaseFragment implements AccountActionLi
             /* If somehow an unmute button is clicked after onCreateView but before
              * onActivityCreated, then this would get called with a null api object, so this eats
              * that input. */
-            Log.d(TAG, "MastodonAPI isn't initialised so this mute can't occur.");
+            Log.d(TAG, "MastodonApi isn't initialised so this mute can't occur.");
             return;
         }
 
         Callback<Relationship> callback = new Callback<Relationship>() {
             @Override
-            public void onResponse(Call<Relationship> call, Response<Relationship> response) {
+            public void onResponse(@NonNull Call<Relationship> call, @NonNull Response<Relationship> response) {
                 if (response.isSuccessful()) {
                     onMuteSuccess(mute, id, position);
                 } else {
@@ -281,7 +194,7 @@ public class AccountListFragment extends BaseFragment implements AccountActionLi
             }
 
             @Override
-            public void onFailure(Call<Relationship> call, Throwable t) {
+            public void onFailure(@NonNull Call<Relationship> call, @NonNull Throwable t) {
                 onMuteFailure(mute, id);
             }
         };
@@ -302,12 +215,9 @@ public class AccountListFragment extends BaseFragment implements AccountActionLi
         }
         final MutesAdapter mutesAdapter = (MutesAdapter) adapter;
         final Account unmutedUser = mutesAdapter.removeItem(position);
-        View.OnClickListener listener = new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                mutesAdapter.addItem(unmutedUser, position);
-                onMute(true, id, position);
-            }
+        View.OnClickListener listener = v -> {
+            mutesAdapter.addItem(unmutedUser, position);
+            onMute(true, id, position);
         };
         Snackbar.make(recyclerView, R.string.confirmation_unmuted, Snackbar.LENGTH_LONG)
                 .setAction(R.string.action_undo, listener)
@@ -330,13 +240,13 @@ public class AccountListFragment extends BaseFragment implements AccountActionLi
             /* If somehow an unblock button is clicked after onCreateView but before
              * onActivityCreated, then this would get called with a null api object, so this eats
              * that input. */
-            Log.d(TAG, "MastodonAPI isn't initialised so this block can't occur.");
+            Log.d(TAG, "MastodonApi isn't initialised so this block can't occur.");
             return;
         }
 
         Callback<Relationship> cb = new Callback<Relationship>() {
             @Override
-            public void onResponse(Call<Relationship> call, Response<Relationship> response) {
+            public void onResponse(@NonNull Call<Relationship> call, @NonNull Response<Relationship> response) {
                 if (response.isSuccessful()) {
                     onBlockSuccess(block, id, position);
                 } else {
@@ -345,7 +255,7 @@ public class AccountListFragment extends BaseFragment implements AccountActionLi
             }
 
             @Override
-            public void onFailure(Call<Relationship> call, Throwable t) {
+            public void onFailure(@NonNull Call<Relationship> call, @NonNull Throwable t) {
                 onBlockFailure(block, id);
             }
         };
@@ -366,12 +276,9 @@ public class AccountListFragment extends BaseFragment implements AccountActionLi
         }
         final BlocksAdapter blocksAdapter = (BlocksAdapter) adapter;
         final Account unblockedUser = blocksAdapter.removeItem(position);
-        View.OnClickListener listener = new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                blocksAdapter.addItem(unblockedUser, position);
-                onBlock(true, id, position);
-            }
+        View.OnClickListener listener = v -> {
+            blocksAdapter.addItem(unblockedUser, position);
+            onBlock(true, id, position);
         };
         Snackbar.make(recyclerView, R.string.confirmation_unblocked, Snackbar.LENGTH_LONG)
                 .setAction(R.string.action_undo, listener)
@@ -395,13 +302,13 @@ public class AccountListFragment extends BaseFragment implements AccountActionLi
             /* If somehow an response button is clicked after onCreateView but before
              * onActivityCreated, then this would get called with a null api object, so this eats
              * that input. */
-            Log.d(TAG, "MastodonAPI isn't initialised, so follow requests can't be responded to.");
+            Log.d(TAG, "MastodonApi isn't initialised, so follow requests can't be responded to.");
             return;
         }
 
         Callback<Relationship> callback = new Callback<Relationship>() {
             @Override
-            public void onResponse(Call<Relationship> call, Response<Relationship> response) {
+            public void onResponse(@NonNull Call<Relationship> call, @NonNull Response<Relationship> response) {
                 if (response.isSuccessful()) {
                     onRespondToFollowRequestSuccess(position);
                 } else {
@@ -410,7 +317,7 @@ public class AccountListFragment extends BaseFragment implements AccountActionLi
             }
 
             @Override
-            public void onFailure(Call<Relationship> call, Throwable t) {
+            public void onFailure(@NonNull Call<Relationship> call, @NonNull Throwable t) {
                 onRespondToFollowRequestFailure(accept, accountId);
             }
         };
@@ -431,17 +338,154 @@ public class AccountListFragment extends BaseFragment implements AccountActionLi
     }
 
     private void onRespondToFollowRequestFailure(boolean accept, String accountId) {
-        String verb = (accept) ? "accept" : "reject";
+        String verb;
+        if (accept) {
+            verb = "accept";
+        } else {
+            verb = "reject";
+        }
         String message = String.format("Failed to %s account id %s.", verb, accountId);
         Log.e(TAG, message);
     }
 
-    private boolean jumpToTopAllowed() {
-        return type == Type.FOLLOWS || type == Type.FOLLOWERS;
+    private enum FetchEnd {
+        TOP,
+        BOTTOM
     }
 
-    private void jumpToTop() {
-        layoutManager.scrollToPositionWithOffset(0, 0);
-        scrollListener.reset();
+    private Call<List<Account>> getFetchCallByListType(Type type, String fromId, String uptoId) {
+        switch (type) {
+            default:
+            case FOLLOWS:
+                return api.accountFollowing(accountId, fromId, uptoId, null);
+            case FOLLOWERS:
+                return api.accountFollowers(accountId, fromId, uptoId, null);
+            case BLOCKS:
+                return api.blocks(fromId, uptoId, null);
+            case MUTES:
+                return api.mutes(fromId, uptoId, null);
+            case FOLLOW_REQUESTS:
+                return api.followRequests(fromId, uptoId, null);
+        }
+    }
+
+    private void fetchAccounts(String fromId, String uptoId, final FetchEnd fetchEnd) {
+        /* If there is a fetch already ongoing, record however many fetches are requested and
+         * fulfill them after it's complete. */
+        if (fetchEnd == FetchEnd.TOP && topLoading) {
+            topFetches++;
+            return;
+        }
+        if (fetchEnd == FetchEnd.BOTTOM && bottomLoading) {
+            bottomFetches++;
+            return;
+        }
+
+        if (fromId != null || adapter.getItemCount() <= 1) {
+            /* When this is called by the EndlessScrollListener it cannot refresh the footer state
+             * using adapter.notifyItemChanged. So its necessary to postpone doing so until a
+             * convenient time for the UI thread using a Runnable. */
+            recyclerView.post(() -> adapter.setFooterState(FooterViewHolder.State.LOADING));
+        }
+
+        Callback<List<Account>> cb = new Callback<List<Account>>() {
+            @Override
+            public void onResponse(@NonNull Call<List<Account>> call, @NonNull Response<List<Account>> response) {
+                if (response.isSuccessful()) {
+                    String linkHeader = response.headers().get("Link");
+                    onFetchAccountsSuccess(response.body(), linkHeader, fetchEnd);
+                } else {
+                    onFetchAccountsFailure(new Exception(response.message()), fetchEnd);
+                }
+            }
+
+            @Override
+            public void onFailure(@NonNull Call<List<Account>> call, @NonNull Throwable t) {
+                onFetchAccountsFailure((Exception) t, fetchEnd);
+            }
+        };
+        Call<List<Account>> listCall = getFetchCallByListType(type, fromId, uptoId);
+        callList.add(listCall);
+        listCall.enqueue(cb);
+    }
+
+    private void onFetchAccountsSuccess(List<Account> accounts, String linkHeader,
+                                        FetchEnd fetchEnd) {
+        List<HttpHeaderLink> links = HttpHeaderLink.parse(linkHeader);
+        switch (fetchEnd) {
+            case TOP: {
+                HttpHeaderLink previous = HttpHeaderLink.findByRelationType(links, "prev");
+                String uptoId = null;
+                if (previous != null) {
+                    uptoId = previous.uri.getQueryParameter("since_id");
+                }
+                adapter.update(accounts, null, uptoId);
+                break;
+            }
+            case BOTTOM: {
+                HttpHeaderLink next = HttpHeaderLink.findByRelationType(links, "next");
+                String fromId = null;
+                if (next != null) {
+                    fromId = next.uri.getQueryParameter("max_id");
+                }
+                if (adapter.getItemCount() > 1) {
+                    adapter.addItems(accounts, fromId);
+                } else {
+                    /* If this is the first fetch, also save the id from the "previous" link and
+                     * treat this operation as a refresh so the scroll position doesn't get pushed
+                     * down to the end. */
+                    HttpHeaderLink previous = HttpHeaderLink.findByRelationType(links, "prev");
+                    String uptoId = null;
+                    if (previous != null) {
+                        uptoId = previous.uri.getQueryParameter("since_id");
+                    }
+                    adapter.update(accounts, fromId, uptoId);
+                }
+                break;
+            }
+        }
+        fulfillAnyQueuedFetches(fetchEnd);
+        if (accounts.size() == 0 && adapter.getItemCount() == 1) {
+            adapter.setFooterState(FooterViewHolder.State.EMPTY);
+        } else {
+            adapter.setFooterState(FooterViewHolder.State.END);
+        }
+    }
+
+    private void onFetchAccountsFailure(Exception exception, FetchEnd fetchEnd) {
+        Log.e(TAG, "Fetch failure: " + exception.getMessage());
+        fulfillAnyQueuedFetches(fetchEnd);
+    }
+
+    private void onRefresh() {
+        fetchAccounts(null, adapter.getTopId(), FetchEnd.TOP);
+    }
+
+    private void onLoadMore(RecyclerView recyclerView) {
+        AccountAdapter adapter = (AccountAdapter) recyclerView.getAdapter();
+        //if we do not have a bottom id, we know we do not need to load more
+        if(adapter.getBottomId() == null) return;
+        fetchAccounts(adapter.getBottomId(), null, FetchEnd.BOTTOM);
+    }
+
+    private void fulfillAnyQueuedFetches(FetchEnd fetchEnd) {
+        switch (fetchEnd) {
+            case BOTTOM: {
+                bottomLoading = false;
+                if (bottomFetches > 0) {
+                    bottomFetches--;
+                    onLoadMore(recyclerView);
+                }
+                break;
+            }
+            case TOP: {
+                topLoading = false;
+                if (topFetches > 0) {
+                    topFetches--;
+                    onRefresh();
+                }
+                break;
+            }
+        }
     }
 }

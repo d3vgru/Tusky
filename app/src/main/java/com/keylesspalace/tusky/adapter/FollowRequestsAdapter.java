@@ -28,9 +28,6 @@ import com.keylesspalace.tusky.entity.Account;
 import com.pkmmte.view.CircularImageView;
 import com.squareup.picasso.Picasso;
 
-import butterknife.BindView;
-import butterknife.ButterKnife;
-
 public class FollowRequestsAdapter extends AccountAdapter {
     private static final int VIEW_TYPE_FOLLOW_REQUEST = 0;
     private static final int VIEW_TYPE_FOOTER = 1;
@@ -62,6 +59,9 @@ public class FollowRequestsAdapter extends AccountAdapter {
             FollowRequestViewHolder holder = (FollowRequestViewHolder) viewHolder;
             holder.setupWithAccount(accountList.get(position));
             holder.setupActionListener(accountActionListener);
+        } else {
+            FooterViewHolder holder = (FooterViewHolder) viewHolder;
+            holder.setState(footerState);
         }
     }
 
@@ -75,17 +75,20 @@ public class FollowRequestsAdapter extends AccountAdapter {
     }
 
     static class FollowRequestViewHolder extends RecyclerView.ViewHolder {
-        @BindView(R.id.follow_request_avatar) CircularImageView avatar;
-        @BindView(R.id.follow_request_username) TextView username;
-        @BindView(R.id.follow_request_display_name) TextView displayName;
-        @BindView(R.id.follow_request_accept) ImageButton accept;
-        @BindView(R.id.follow_request_reject) ImageButton reject;
-
+        private CircularImageView avatar;
+        private TextView username;
+        private TextView displayName;
+        private ImageButton accept;
+        private ImageButton reject;
         private String id;
 
         FollowRequestViewHolder(View itemView) {
             super(itemView);
-            ButterKnife.bind(this, itemView);
+            avatar = itemView.findViewById(R.id.follow_request_avatar);
+            username = itemView.findViewById(R.id.follow_request_username);
+            displayName = itemView.findViewById(R.id.follow_request_display_name);
+            accept = itemView.findViewById(R.id.follow_request_accept);
+            reject = itemView.findViewById(R.id.follow_request_reject);
         }
 
         void setupWithAccount(Account account) {
@@ -96,7 +99,6 @@ public class FollowRequestsAdapter extends AccountAdapter {
             username.setText(formattedUsername);
             Picasso.with(avatar.getContext())
                     .load(account.avatar)
-                    .error(R.drawable.avatar_error)
                     .placeholder(R.drawable.avatar_default)
                     .into(avatar);
         }

@@ -23,7 +23,7 @@
     <string name="title_notifications">Bildirimler</string>
     <string name="title_public_local">Yerel</string>
     <string name="title_public_federated">Birleşmiş</string>
-    <string name="title_thread">Dizi</string>
+    <string name="title_view_thread">Dizi</string>
     <string name="title_tag">#%s</string>
     <string name="title_statuses">İletiler</string>
     <string name="title_follows">Takip edilenler</string>
@@ -41,9 +41,6 @@
     <string name="status_content_warning_show_more">Daha Fazla Göster</string>
     <string name="status_content_warning_show_less">Daha Az Göster</string>
 
-    <string name="footer_end_of_statuses">iletilerin sonu</string>
-    <string name="footer_end_of_notifications">bildirmelerin sonu</string>
-    <string name="footer_end_of_accounts">hesapların sonu</string>
     <string name="footer_empty">Henüz hiç ileti yoktur. Yenilemek için aşağıya çek!</string>
 
     <string name="notification_reblog_format">%s iletini yükseltti</string>
@@ -69,31 +66,24 @@
     <string name="action_send">İLET</string>
     <string name="action_send_public">İLET!</string>
     <string name="action_retry">Tekrar dene</string>
-    <string name="action_mark_sensitive">Medyayı hassas olarak etiketle</string>
     <string name="action_hide_text">İçerik uyarıyla gizlensin</string>
-    <string name="action_ok">Tamam</string>
-    <string name="action_cancel">İptal</string>
     <string name="action_close">Kapat</string>
-    <string name="action_back">Geri</string>
     <string name="action_view_profile">Profil</string>
     <string name="action_view_preferences">Ayarlar</string>
     <string name="action_view_favourites">Favoriler</string>
     <string name="action_view_mutes">Sesize alınmış kullanıcılar</string>
     <string name="action_view_blocks">Engellenmiş kullanıcılar</string>
-    <string name="action_view_thread">Dizi</string>
     <string name="action_view_media">Medya</string>
     <string name="action_open_in_web">Tarayıcıda aç</string>
-    <string name="action_submit">Gönder</string>
     <string name="action_photo_pick">Medya ekle</string>
     <string name="action_photo_take">Resim çek</string>
     <string name="action_share">Paylaş</string>
     <string name="action_mute">Sesize al</string>
     <string name="action_unmute">Sesizden kaldır</string>
     <string name="action_mention">Bahset</string>
-    <string name="toggle_nsfw">UYARILI</string>
+    <!--<string name="action_mark_sensitive">Mark media sensitive</string>-->
     <string name="action_compose_options">Seçenekler</string>
     <string name="action_open_drawer">Çekmece aç</string>
-    <string name="action_clear">Temizle</string>
     <string name="action_save">Kaydet</string>
     <string name="action_edit_profile">Profili düzelt</string>
     <string name="action_undo">Geri al</string>
@@ -103,8 +93,6 @@
     <string name="send_status_link_to">İletinin adresini paylaş…</string>
     <string name="send_status_content_to">İletiyi paylaş…</string>
 
-    <string name="search">Hesaplarda ara…</string>
-
     <string name="confirmation_send">İlet!</string>
     <string name="confirmation_reported">İletildi!</string>
 
@@ -113,6 +101,7 @@
     <string name="hint_content_warning">İçerik uyarı</string>
     <string name="hint_display_name">Görünen ad</string>
     <string name="hint_note">Biyo</string>
+    <string name="hint_search">Hesaplarda ara…</string>
 
     <string name="label_avatar">Simge</string>
     <string name="label_header">Üstlük</string>
@@ -150,7 +139,6 @@
     <string name="pref_title_notification_filter_reblogs">iletilerim yüksetilince</string>
     <string name="pref_title_notification_filter_favourites">iletilerim favori edilince</string>
     <string name="pref_title_appearance_settings">Görünüş</string>
-    <string name="pref_title_light_theme">Açık renkli temayı kullan</string>
     <string name="pref_title_browser_settings">Tarayacı</string>
     <string name="pref_title_custom_tabs">Chrome Özel Şekmelerini Kullan</string>
     <string name="pref_title_hide_follow_button">Kaydırırken takip düğmesi gizlensin</string>

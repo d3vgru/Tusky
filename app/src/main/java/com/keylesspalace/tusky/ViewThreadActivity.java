@@ -15,7 +15,6 @@
 
 package com.keylesspalace.tusky;
 
-import android.content.res.Configuration;
 import android.os.Bundle;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
@@ -26,6 +25,7 @@ import android.view.Menu;
 import android.view.MenuItem;
 
 import com.keylesspalace.tusky.fragment.ViewThreadFragment;
+import com.keylesspalace.tusky.util.LinkHelper;
 
 public class ViewThreadActivity extends BaseActivity {
     @Override
@@ -33,19 +33,19 @@ public class ViewThreadActivity extends BaseActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_view_thread);
 
-        Toolbar toolbar = (Toolbar) findViewById(R.id.toolbar);
+        Toolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
-        ActionBar bar = getSupportActionBar();
-        if (bar != null) {
-            bar.setTitle(null);
-            bar.setDisplayHomeAsUpEnabled(true);
-            bar.setDisplayShowHomeEnabled(true);
+        ActionBar actionBar = getSupportActionBar();
+        if (actionBar != null) {
+            actionBar.setTitle(R.string.title_view_thread);
+            actionBar.setDisplayHomeAsUpEnabled(true);
+            actionBar.setDisplayShowHomeEnabled(true);
         }
 
         String id = getIntent().getStringExtra("id");
         FragmentTransaction fragmentTransaction = getSupportFragmentManager().beginTransaction();
         Fragment fragment = ViewThreadFragment.newInstance(id);
-        fragmentTransaction.add(R.id.fragment_container, fragment);
+        fragmentTransaction.replace(R.id.fragment_container, fragment);
         fragmentTransaction.commit();
     }
 
@@ -62,14 +62,11 @@ public class ViewThreadActivity extends BaseActivity {
                 onBackPressed();
                 return true;
             }
+            case R.id.action_open_in_web: {
+                LinkHelper.openLink(getIntent().getStringExtra("url"), this);
+                return true;
+            }
         }
         return super.onOptionsItemSelected(item);
-    }
-
-    @Override
-    public void onConfigurationChanged(Configuration newConfig) {
-        super.onConfigurationChanged(newConfig);
-        /* Provide a stub to ignore configuration changes so the thread isn't reloaded when the
-         * the activity is reoriented or resized. */
     }
 }

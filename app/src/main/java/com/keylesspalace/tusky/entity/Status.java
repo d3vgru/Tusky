@@ -17,17 +17,12 @@ package com.keylesspalace.tusky.entity;
 
 import android.text.Spanned;
 
-import com.google.gson.JsonDeserializationContext;
-import com.google.gson.JsonDeserializer;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonParseException;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Date;
+import java.util.List;
 
 public class Status {
-    private Status actionableStatus;
-
     public String url;
 
     @SerializedName("reblogs_count")
@@ -51,15 +46,55 @@ public class Status {
     }
 
     public enum Visibility {
-        UNKNOWN,
+        UNKNOWN(0),
         @SerializedName("public")
-        PUBLIC,
+        PUBLIC(1),
         @SerializedName("unlisted")
-        UNLISTED,
+        UNLISTED(2),
         @SerializedName("private")
-        PRIVATE,
+        PRIVATE(3),
         @SerializedName("direct")
-        DIRECT,
+        DIRECT(4);
+
+        private final int num;
+
+        Visibility(int num) {
+            this.num = num;
+        }
+
+        public int getNum() {
+            return num;
+        }
+
+        public static Visibility byNum(int num) {
+            switch (num) {
+                case 4: return DIRECT;
+                case 3: return PRIVATE;
+                case 2: return UNLISTED;
+                case 1: return PUBLIC;
+                case 0: default: return UNKNOWN;
+            }
+        }
+
+        public static Visibility byString(String s) {
+            switch (s) {
+                case "public": return PUBLIC;
+                case "unlisted": return UNLISTED;
+                case "private": return PRIVATE;
+                case "direct": return DIRECT;
+                case "unknown": default: return UNKNOWN;
+            }
+        }
+
+        public String serverString() {
+            switch (this) {
+                case PUBLIC: return "public";
+                case UNLISTED: return "unlisted";
+                case PRIVATE: return "private";
+                case DIRECT: return "direct";
+                case UNKNOWN: default: return "unknown";
+            }
+        }
     }
 
     public String id;
@@ -79,6 +114,8 @@ public class Status {
 
     public boolean sensitive;
 
+    public List<Emoji> emojis;
+
     @SerializedName("spoiler_text")
     public String spoilerText;
 
@@ -96,72 +133,30 @@ public class Status {
     }
 
     @SerializedName("media_attachments")
-    public MediaAttachment[] attachments;
+    public Attachment[] attachments;
 
     public Mention[] mentions;
+
+    public Application application;
 
     public static final int MAX_MEDIA_ATTACHMENTS = 4;
 
     @Override
-    public int hashCode() {
-        return id.hashCode();
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+
+        Status status = (Status) o;
+        return id != null ? id.equals(status.id) : status.id == null;
     }
 
     @Override
-    public boolean equals(Object other) {
-        if (this.id == null) {
-            return this == other;
-        } else if (!(other instanceof Status)) {
-            return false;
-        }
-        Status status = (Status) other;
-        return status.id.equals(this.id);
+    public int hashCode() {
+        return id != null ? id.hashCode() : 0;
     }
 
-    public static class MediaAttachment {
-        @com.google.gson.annotations.JsonAdapter(MediaTypeDeserializer.class)
-        public enum Type {
-            @SerializedName("image")
-            IMAGE,
-            @SerializedName("gifv")
-            GIFV,
-            @SerializedName("video")
-            VIDEO,
-            UNKNOWN
-        }
 
-        public String url;
-
-        @SerializedName("preview_url")
-        public String previewUrl;
-
-        @SerializedName("text_url")
-        public String textUrl;
-
-        @SerializedName("remote_url")
-        public String remoteUrl;
-
-        public Type type;
-
-        static class MediaTypeDeserializer implements JsonDeserializer<Type> {
-            @Override
-            public Type deserialize(JsonElement json, java.lang.reflect.Type classOfT, JsonDeserializationContext context)
-                    throws JsonParseException {
-                switch(json.toString()) {
-                    case "\"image\"":
-                        return Type.IMAGE;
-                    case "\"gifv\"":
-                        return Type.GIFV;
-                    case "\"video\"":
-                        return Type.VIDEO;
-                    default:
-                        return Type.UNKNOWN;
-                }
-            }
-        }
-    }
-
-    public static class Mention {
+    public static final class Mention {
         public String id;
 
         public String url;
@@ -173,5 +168,22 @@ public class Status {
         public String localUsername;
     }
 
+    public static class Application {
+        public String name;
+        public String website;
+    }
 
+    @SuppressWarnings("unused")
+    public static class Emoji {
+        private String shortcode;
+        private String url;
+
+        public String getShortcode() {
+            return shortcode;
+        }
+
+        public String getUrl() {
+            return url;
+        }
+    }
 }
